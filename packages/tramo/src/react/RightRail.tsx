@@ -25,6 +25,8 @@ export function RightRail({
   onApply,
   onClose,
   saveState,
+  doc,
+  runResults,
   tabs = [],
 }: RightRailProps) {
   const allTabs: RightRailTab[] = [
@@ -38,6 +40,8 @@ export function RightRail({
           onApply={onApply}
           onClose={onClose}
           saveState={saveState}
+          doc={doc}
+          runResults={runResults}
         />
       ),
     },

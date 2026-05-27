@@ -7,7 +7,7 @@ import {
   type Patch,
   type WorkflowDoc,
 } from 'tramo-spec';
-import { Canvas, RightRail, useWorkflow } from 'tramo/react';
+import { AgentChat, Canvas, RightRail, useWorkflow } from 'tramo/react';
 import { BUILTIN_PACK, combinePacks, run, type RunEvent } from 'tramo-runtime';
 import { SAMPLE_DOC } from './sample.js';
 
@@ -27,6 +27,7 @@ export function App() {
   const [resetCounter, setResetCounter] = useState(0);
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [running, setRunning] = useState(false);
+  const [runResults, setRunResults] = useState<Record<string, unknown>>({});
 
   // Pack-based loading: extending the demo with a Slack/Postgres/etc.
   // pack would mean adding it to this array. The editor and the runtime
@@ -43,11 +44,23 @@ export function App() {
   const runFlow = useCallback(async () => {
     if (!workflow.doc) return;
     setEvents([]);
+    setRunResults({});
     setRunning(true);
     try {
-      await run(workflow.doc, executors, {
+      const result = await run(workflow.doc, executors, {
         onEvent: (e) => setEvents((prev) => [...prev, e]),
       });
+      // Strip `{ out: value }` wrappers down to the bare value where present,
+      // matching how downstream nodes receive the data.
+      const flattened: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(result.nodeResults)) {
+        if (v && typeof v === 'object' && !Array.isArray(v) && 'out' in v && Object.keys(v).length === 1) {
+          flattened[k] = (v as Record<string, unknown>).out;
+        } else {
+          flattened[k] = v;
+        }
+      }
+      setRunResults(flattened);
     } finally {
       setRunning(false);
     }
@@ -56,6 +69,7 @@ export function App() {
   const reset = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
     setEvents([]);
+    setRunResults({});
     setResetCounter((n) => n + 1);
   }, []);
 
@@ -75,6 +89,24 @@ export function App() {
           </span>
         </div>
         <div className="demo-header__actions">
+          <button
+            type="button"
+            className="tr-btn tr-btn--ghost"
+            onClick={workflow.undo}
+            disabled={!workflow.canUndo}
+            title="Undo (Ctrl/⌘ + Z)"
+          >
+            ↶ Undo
+          </button>
+          <button
+            type="button"
+            className="tr-btn tr-btn--ghost"
+            onClick={workflow.redo}
+            disabled={!workflow.canRedo}
+            title="Redo (Ctrl/⌘ + Shift + Z)"
+          >
+            ↷ Redo
+          </button>
           <button type="button" className="tr-btn tr-btn--ghost" onClick={loadExample}>
             Load example
           </button>
@@ -89,7 +121,7 @@ export function App() {
 
       <div className="demo-body">
         <main className="demo-stage">
-          <Canvas workflow={workflow} />
+          <Canvas workflow={workflow} runResults={runResults} />
           {events.length > 0 ? <RunLog events={events} /> : null}
         </main>
 
@@ -99,6 +131,21 @@ export function App() {
           onApply={workflow.applyPatch}
           onClose={workflow.clearSelection}
           saveState={workflow.saveState}
+          doc={workflow.doc}
+          runResults={runResults}
+          tabs={[
+            {
+              id: 'agent',
+              label: 'Agent',
+              render: () => (
+                <AgentChat
+                  doc={workflow.doc}
+                  registry={nodes}
+                  applyPatch={workflow.applyPatch}
+                />
+              ),
+            },
+          ]}
         />
       </div>
     </div>

@@ -44,6 +44,11 @@ export interface CanvasProps {
   /** Min / max zoom levels. */
   minZoom?: number;
   maxZoom?: number;
+  /**
+   * Per-node outputs from the most recent run (keyed by node id). When
+   * provided, each node card shows a small preview of what it emitted.
+   */
+  runResults?: Record<string, unknown>;
 }
 
 interface InsertionTarget {
@@ -75,6 +80,7 @@ export function Canvas({
   nodeHeight = NODE_HEIGHT_DEFAULT,
   minZoom = 0.4,
   maxZoom = 2,
+  runResults,
 }: CanvasProps) {
   const { doc, selectedId, setSelection, clearSelection, registry, applyPatch } = workflow;
 
@@ -380,6 +386,7 @@ export function Canvas({
               selected={n.id === selectedId}
               onClick={() => setSelection(n.id)}
               applyPatch={applyPatch}
+              lastResult={runResults?.[n.id]}
             />
           );
         })}

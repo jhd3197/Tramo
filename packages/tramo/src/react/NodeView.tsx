@@ -28,6 +28,8 @@ export interface NodeViewProps {
   selected: boolean;
   onClick: () => void;
   applyPatch: (patch: Patch) => void;
+  /** Last value emitted by this node on the most recent run. */
+  lastResult?: unknown;
 }
 
 function NodeViewImpl({
@@ -40,6 +42,7 @@ function NodeViewImpl({
   selected,
   onClick,
   applyPatch,
+  lastResult,
 }: NodeViewProps) {
   const label = node.label ?? definition?.name ?? node.type;
   const category = definition?.category;
@@ -89,6 +92,12 @@ function NodeViewImpl({
             ) : (
               <span className="tr-node-v2__type">{node.type}</span>
             )}
+            {lastResult !== undefined ? (
+              <span className="tr-node-v2__preview" title={fullPreview(lastResult)}>
+                <span className="tr-node-v2__preview-dot" aria-hidden />
+                {shortPreview(lastResult)}
+              </span>
+            ) : null}
           </span>
         </button>
         <NodeMenu node={node} applyPatch={applyPatch} />
@@ -116,3 +125,23 @@ function NodeViewImpl({
 }
 
 export const NodeView = memo(NodeViewImpl);
+
+function shortPreview(v: unknown): string {
+  const s = stringify(v);
+  return s.length > 60 ? `${s.slice(0, 57)}…` : s;
+}
+
+function fullPreview(v: unknown): string {
+  const s = stringify(v);
+  return s.length > 400 ? `${s.slice(0, 397)}…` : s;
+}
+
+function stringify(v: unknown): string {
+  if (v === undefined) return 'undefined';
+  if (typeof v === 'string') return v;
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
+}

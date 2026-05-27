@@ -15,12 +15,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   applyPatch,
+  applyPatches,
   emptyDoc,
   type NodeRegistry,
   type Patch,
   type WorkflowDoc,
   type WorkflowNode,
 } from 'tramo-spec';
+import { invertPatch } from './invertPatch.js';
+
+/** One undo/redo frame. `forward` re-does, `inverse` undoes (applied in order). */
+interface HistoryFrame {
+  forward: Patch[];
+  inverse: Patch[];
+}
+
+const HISTORY_LIMIT = 100;
 
 export type SaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
 
@@ -60,6 +70,14 @@ export interface WorkflowHandle {
   /** Replace the entire doc. */
   setDoc: (doc: WorkflowDoc) => void;
 
+  /** Undo the most recent applyPatch (no-op if history is empty). */
+  undo: () => void;
+  /** Redo the most recently undone change. */
+  redo: () => void;
+  /** Whether undo/redo can fire — useful for disabling toolbar buttons. */
+  canUndo: boolean;
+  canRedo: boolean;
+
   registry: NodeRegistry;
   ready: boolean;
   saveState: SaveState;
@@ -79,6 +97,13 @@ export function useWorkflow({
   const [saveState, setSaveState] = useState<SaveState>({ status: 'idle', error: null });
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /* ---------- history ---------- */
+  const undoStack = useRef<HistoryFrame[]>([]);
+  const redoStack = useRef<HistoryFrame[]>([]);
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const bumpHistory = useCallback(() => setHistoryVersion((v) => v + 1), []);
+  const inHistoryReplay = useRef(false);
+
   /* ---------- load ---------- */
 
   useEffect(() => {
@@ -86,10 +111,16 @@ export function useWorkflow({
       setDocState(null);
       setSelectedId(null);
       setReady(false);
+      undoStack.current = [];
+      redoStack.current = [];
+      bumpHistory();
       return;
     }
     let cancelled = false;
     setReady(false);
+    undoStack.current = [];
+    redoStack.current = [];
+    bumpHistory();
     Promise.resolve(loadDoc())
       .then((d) => {
         if (cancelled) return;
@@ -146,6 +177,15 @@ export function useWorkflow({
           console.warn('tramo patch failed:', r.error, patch);
           return current;
         }
+        if (!inHistoryReplay.current) {
+          const inverse = invertPatch(current, patch);
+          undoStack.current.push({ forward: [patch], inverse });
+          if (undoStack.current.length > HISTORY_LIMIT) {
+            undoStack.current.splice(0, undoStack.current.length - HISTORY_LIMIT);
+          }
+          redoStack.current = [];
+          bumpHistory();
+        }
         scheduleSave(r.doc);
         return r.doc;
       });
@@ -154,8 +194,42 @@ export function useWorkflow({
         setSelectedId((s) => (s === patch.id ? null : s));
       }
     },
-    [scheduleSave],
+    [scheduleSave, bumpHistory],
   );
+
+  const undo = useCallback(() => {
+    const frame = undoStack.current.pop();
+    if (!frame) return;
+    setDocState((current) => {
+      if (!current) return current;
+      const r = applyPatches(current, frame.inverse);
+      if (!r.ok) {
+        console.warn('tramo undo failed:', r.error);
+        return current;
+      }
+      scheduleSave(r.doc);
+      return r.doc;
+    });
+    redoStack.current.push(frame);
+    bumpHistory();
+  }, [scheduleSave, bumpHistory]);
+
+  const redo = useCallback(() => {
+    const frame = redoStack.current.pop();
+    if (!frame) return;
+    setDocState((current) => {
+      if (!current) return current;
+      const r = applyPatches(current, frame.forward);
+      if (!r.ok) {
+        console.warn('tramo redo failed:', r.error);
+        return current;
+      }
+      scheduleSave(r.doc);
+      return r.doc;
+    });
+    undoStack.current.push(frame);
+    bumpHistory();
+  }, [scheduleSave, bumpHistory]);
 
   const setDoc = useCallback(
     (next: WorkflowDoc) => {
@@ -174,6 +248,33 @@ export function useWorkflow({
     return doc.nodes.find((n) => n.id === selectedId) ?? null;
   }, [doc, selectedId]);
 
+  /* ---------- keyboard shortcuts (Cmd/Ctrl-Z, Cmd/Ctrl-Shift-Z) ---------- */
+
+  useEffect(() => {
+    if (!enabled) return;
+    const onKey = (e: KeyboardEvent) => {
+      const isMod = e.metaKey || e.ctrlKey;
+      if (!isMod) return;
+      const key = e.key.toLowerCase();
+      if (key !== 'z' && key !== 'y') return;
+      // Let native undo run inside editable surfaces.
+      const t = e.target as HTMLElement | null;
+      if (t) {
+        const tag = t.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || t.isContentEditable) return;
+      }
+      const wantsRedo = key === 'y' || (key === 'z' && e.shiftKey);
+      e.preventDefault();
+      if (wantsRedo) redo();
+      else undo();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [enabled, undo, redo]);
+
+  // historyVersion is read so canUndo/canRedo trigger consumer rerenders.
+  void historyVersion;
+
   return {
     doc,
     selection,
@@ -182,6 +283,10 @@ export function useWorkflow({
     clearSelection,
     applyPatch: applyPatchInternal,
     setDoc,
+    undo,
+    redo,
+    canUndo: undoStack.current.length > 0,
+    canRedo: redoStack.current.length > 0,
     registry,
     ready,
     saveState,

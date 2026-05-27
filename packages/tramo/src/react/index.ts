@@ -20,3 +20,11 @@ export {
 } from './layout.js';
 export { NodeInspector, type NodeInspectorProps } from './NodeInspector.js';
 export { RightRail, type RightRailProps, type RightRailTab } from './RightRail.js';
+export { AgentChat, type AgentChatProps } from './AgentChat.js';
+export {
+  getVarSuggestions,
+  type VarSuggestion,
+  type VarSuggestionsOptions,
+} from './varSuggestions.js';
+export { VarPicker, type VarPickerProps } from './VarPicker.js';
+export { invertPatch } from './invertPatch.js';
