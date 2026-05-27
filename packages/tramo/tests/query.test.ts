@@ -11,7 +11,7 @@ import {
 } from '../src/index.js';
 
 function n(id: string): WorkflowNode {
-  return { id, type: 'log', position: { x: 0, y: 0 }, config: {} };
+  return { id, type: 'log', config: {} };
 }
 
 function chain(ids: string[]) {

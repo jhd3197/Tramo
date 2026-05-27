@@ -24,113 +24,306 @@
   --tr-sans:         system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
-/* ---------------------- canvas + nodes ---------------------- */
+/* ---------------------- canvas + nodes (own engine) ---------------------- */
 
-.tr-canvas {
+:root {
+  --tr-edge: #cbd5e1;
+  --tr-plus: #94a3b8;
+  --tr-plus-hover: var(--tr-accent);
+}
+
+.tr-canvas-v2 {
   position: relative;
   width: 100%;
   height: 100%;
-  background: var(--tr-bg);
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.35) 1px, transparent 0)
+      0 0 / 20px 20px,
+    var(--tr-bg);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
 
-  .react-flow__renderer { background: var(--tr-bg); }
-  .react-flow__edge-path {
-    stroke: var(--tr-border-strong);
-    stroke-width: 1.5;
+  &:active { cursor: grabbing; }
+
+  &--empty { background: var(--tr-bg); }
+
+  &__world {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    will-change: transform;
   }
-  .react-flow__edge.selected .react-flow__edge-path {
-    stroke: var(--tr-accent);
-    stroke-width: 2;
+
+  &__edges {
+    position: absolute;
+    inset: 0;
+    overflow: visible;
+    pointer-events: none;
   }
 }
 
-.tr-minimap {
-  background: var(--tr-surface) !important;
-  border: 1px solid var(--tr-border);
-  border-radius: var(--tr-radius);
-}
-
-.tr-node {
-  position: relative;
-  min-width: 200px;
-  max-width: 260px;
-  padding: 10px 14px;
-  background: var(--tr-surface);
-  border: 1px solid var(--tr-border);
-  border-left-width: 4px;
-  border-radius: var(--tr-radius);
+.tr-node-v2 {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none; // re-enabled on the inner card so the gap above is non-blocking
   font-family: var(--tr-sans);
   color: var(--tr-text);
-  box-shadow: var(--tr-shadow);
-  transition: border-color 120ms, box-shadow 120ms;
 
-  &--selected {
-    border-color: var(--tr-accent);
-    box-shadow: 0 0 0 2px var(--tr-accent-soft), var(--tr-shadow);
+  &__pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    line-height: 1;
+    margin-bottom: 6px;
+    pointer-events: auto;
+    user-select: none;
+
+    svg { flex-shrink: 0; }
   }
 
-  &__head {
+  &__card {
     display: flex;
-    align-items: center;
-    gap: 10px;
+    align-items: flex-start;
+    gap: 12px;
+    width: 100%;
+    flex: 1;
+    padding: 14px 16px;
+    background: var(--tr-surface);
+    border: 1px solid var(--tr-border);
+    border-radius: 10px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 2px 8px rgba(15, 23, 42, 0.04);
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    pointer-events: auto;
+    transition: border-color 120ms, box-shadow 120ms, transform 120ms;
+
+    &:hover {
+      border-color: var(--tr-border-strong);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 8px 20px rgba(15, 23, 42, 0.08);
+      transform: translateY(-1px);
+    }
+  }
+
+  &--selected &__card {
+    border-color: var(--tr-accent);
+    box-shadow: 0 0 0 2px var(--tr-accent-soft), 0 1px 2px rgba(15, 23, 42, 0.04), 0 2px 8px rgba(15, 23, 42, 0.04);
   }
 
   &__icon {
-    width: 26px; height: 26px;
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
     display: inline-flex;
-    align-items: center; justify-content: center;
+    align-items: center;
+    justify-content: center;
     background: var(--tr-surface-alt);
-    border-radius: var(--tr-radius-sm);
-    font-family: var(--tr-mono);
-    font-size: 13px;
+    border-radius: 8px;
     color: var(--tr-text);
   }
 
-  &__titles { flex: 1; min-width: 0; }
-  &__name {
-    font-size: 13px;
-    font-weight: 600;
-    line-height: 1.2;
+  &__titles {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+    flex: 1;
   }
-  &__type {
-    font-family: var(--tr-mono);
-    font-size: 10px;
-    color: var(--tr-text-muted);
-    margin-top: 2px;
+
+  &__name {
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--tr-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
   }
 
   &__desc {
-    margin-top: 6px;
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.4;
     color: var(--tr-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
   }
 
-  &__port {
-    position: absolute;
-    right: 0;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 10px;
+  &__type {
+    font-family: var(--tr-mono);
+    font-size: 11px;
     color: var(--tr-text-muted);
-    transform: translateX(50%);
-    pointer-events: none;
-  }
-  &__port-label {
-    background: var(--tr-surface);
-    padding: 0 4px;
-    border-radius: 2px;
-    transform: translateX(-12px);
-    pointer-events: none;
   }
 }
 
-.tr-handle {
-  width: 10px !important;
-  height: 10px !important;
-  background: var(--tr-surface) !important;
-  border: 2px solid var(--tr-border-strong) !important;
-  &--in:hover, &--out:hover { border-color: var(--tr-accent) !important; }
+/* ---------- variable chips in node titles ---------- */
+
+.tr-var-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 1px 6px;
+  margin: 0 2px;
+  background: var(--tr-surface-alt);
+  border: 1px solid var(--tr-border);
+  border-radius: 4px;
+  font-family: var(--tr-mono);
+  font-size: 0.85em;
+  line-height: 1.4;
+  color: var(--tr-text);
+  white-space: nowrap;
+  vertical-align: baseline;
+
+  &__hash {
+    color: var(--tr-text-dim);
+    font-weight: 600;
+  }
+
+  &__name {
+    color: var(--tr-text);
+  }
+}
+
+.tr-plus {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: var(--tr-surface);
+  color: var(--tr-plus);
+  border: 1.5px dashed var(--tr-plus);
+  border-radius: 50%;
+  cursor: pointer;
+  pointer-events: auto;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  transition: color 120ms, border-color 120ms, background 120ms, transform 120ms;
+
+  &:hover {
+    color: #fff;
+    background: var(--tr-plus-hover);
+    border-color: var(--tr-plus-hover);
+    border-style: solid;
+    transform: scale(1.1);
+  }
+}
+
+/* ---------------------- insertion popover ---------------------- */
+
+.tr-popover-scrim {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  z-index: 50;
+}
+
+.tr-popover {
+  position: absolute;
+  z-index: 51;
+  width: 280px;
+  max-height: 360px;
+  display: flex;
+  flex-direction: column;
+  background: var(--tr-surface);
+  border: 1px solid var(--tr-border-strong);
+  border-radius: var(--tr-radius);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+  font-family: var(--tr-sans);
+  color: var(--tr-text);
+
+  &__head {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--tr-border);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--tr-text-muted);
+  }
+
+  &__body {
+    overflow-y: auto;
+    padding: 8px;
+  }
+
+  &__group + &__group {
+    margin-top: 8px;
+  }
+
+  &__group-head {
+    padding: 4px 6px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--tr-text-muted);
+  }
+
+  &__item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 10px;
+    background: transparent;
+    border: 0;
+    border-radius: var(--tr-radius-sm);
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    color: inherit;
+    transition: background 120ms;
+
+    &:hover {
+      background: var(--tr-accent-soft);
+    }
+
+    &-icon {
+      flex-shrink: 0;
+      width: 22px;
+      height: 22px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 1px;
+      color: var(--tr-text);
+    }
+
+    &-body {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    &-name {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    &-desc {
+      font-size: 11px;
+      color: var(--tr-text-muted);
+      line-height: 1.4;
+    }
+  }
 }
 
 /* ---------------------- panel (palette) ---------------------- */

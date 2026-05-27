@@ -10,7 +10,7 @@ import {
 } from '../src/index.js';
 
 function n(id: string, type = 'log'): WorkflowNode {
-  return { id, type, position: { x: 0, y: 0 }, config: {} };
+  return { id, type, config: {} };
 }
 
 describe('applyPatch', () => {
@@ -41,7 +41,7 @@ describe('applyPatch', () => {
   it('update-node-config merges by default and replaces with replace=true', () => {
     const initial = applyPatch(emptyDoc(), {
       kind: 'add-node',
-      node: { id: 'n1', type: 'log', position: { x: 0, y: 0 }, config: { a: 1, b: 2 } },
+      node: { id: 'n1', type: 'log', config: { a: 1, b: 2 } },
     });
     const merged = applyPatch(initial.doc, {
       kind: 'update-node-config',
@@ -57,16 +57,6 @@ describe('applyPatch', () => {
       replace: true,
     });
     expect(replaced.doc.nodes[0]!.config).toEqual({ only: true });
-  });
-
-  it('move-node updates position', () => {
-    const initial = applyPatch(emptyDoc(), { kind: 'add-node', node: n('n1') });
-    const moved = applyPatch(initial.doc, {
-      kind: 'move-node',
-      id: 'n1',
-      position: { x: 100, y: 200 },
-    });
-    expect(moved.doc.nodes[0]!.position).toEqual({ x: 100, y: 200 });
   });
 
   it('remove-node cascades and drops connected edges', () => {

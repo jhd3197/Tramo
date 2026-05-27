@@ -36,20 +36,6 @@ export function applyPatch(doc: WorkflowDoc, patch: Patch): PatchResult {
       };
     }
 
-    case 'move-node': {
-      const node = findNode(doc, patch.id);
-      if (!node) return { ok: false, doc, error: `Node not found: ${patch.id}` };
-      return {
-        ok: true,
-        doc: {
-          ...doc,
-          nodes: doc.nodes.map((n) =>
-            n.id === patch.id ? { ...n, position: { ...patch.position } } : n,
-          ),
-        },
-      };
-    }
-
     case 'remove-node': {
       const node = findNode(doc, patch.id);
       if (!node) return { ok: false, doc, error: `Node not found: ${patch.id}` };
@@ -133,7 +119,6 @@ function cloneNode(n: WorkflowNode): WorkflowNode {
   return {
     id: n.id,
     type: n.type,
-    position: { ...n.position },
     config: { ...n.config },
     ...(n.label !== undefined ? { label: n.label } : {}),
   };

@@ -16,7 +16,6 @@ describe('validatePatch', () => {
       node: {
         id: 'n_abcd',
         type: 'log',
-        position: { x: 0, y: 0 },
         config: {},
       },
     });
@@ -76,8 +75,8 @@ describe('formatDocContext', () => {
     const out = formatDocContext({
       version: 1,
       nodes: [
-        { id: 'n1', type: 'manual-trigger', position: { x: 0, y: 0 }, config: { payload: '{}' } },
-        { id: 'n2', type: 'log', position: { x: 200, y: 0 }, config: { level: 'info' } },
+        { id: 'n1', type: 'manual-trigger', config: { payload: '{}' } },
+        { id: 'n2', type: 'log', config: { level: 'info' } },
       ],
       edges: [{ id: 'e1', source: 'n1', target: 'n2' }],
       meta: {},

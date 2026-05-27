@@ -1,0 +1,150 @@
+/* ============================================================
+   tramo-demo — host-app styles. Mirrors htmlstudio's SCSS
+   convention: BEM with a `demo-` prefix, CSS-variable tokens,
+   nesting via SCSS. The tramo package itself ships its own
+   `tr-` styles (imported via `tramo/styles.css` in main.tsx).
+   ============================================================ */
+
+:root {
+  --demo-bg:           #f1f5f9;
+  --demo-bg-stage:     #f8fafc;
+  --demo-surface:      #ffffff;
+  --demo-border:       #e2e8f0;
+  --demo-border-soft:  #e2e8f0;
+  --demo-text:         #0f172a;
+  --demo-text-muted:   #64748b;
+  --demo-text-dim:     #94a3b8;
+  --demo-brand-from:   #3b82f6;
+  --demo-brand-to:     #a855f7;
+  --demo-radius:       6px;
+  --demo-radius-sm:    4px;
+  --demo-mono:         ui-monospace, SFMono-Regular, Menlo, monospace;
+  --demo-sans:         system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  // Run-log palette
+  --demo-log-bg:       rgba(15, 23, 42, 0.92);
+  --demo-log-fg:       #e2e8f0;
+  --demo-log-success:  #34d399;
+  --demo-log-error:    #f87171;
+  --demo-log-skip:     #fbbf24;
+  --demo-log-text:     #cbd5e1;
+  --demo-log-meta:     #94a3b8;
+  --demo-log-head:     #f1f5f9;
+}
+
+:root {
+  font-family: var(--demo-sans);
+  color: var(--demo-text);
+  background: var(--demo-bg);
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+
+/* ---------------------- shell ---------------------- */
+
+.demo-app {
+  display: grid;
+  grid-template-rows: 56px 1fr;
+  height: 100vh;
+}
+
+.demo-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 16px;
+  background: var(--demo-surface);
+  border-bottom: 1px solid var(--demo-border);
+
+  &__brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  &__logo {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--demo-brand-from), var(--demo-brand-to));
+    border-radius: var(--demo-radius);
+    color: #fff;
+    font-weight: 700;
+  }
+
+  &__title {
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  &__tag {
+    padding: 2px 6px;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--demo-text-muted);
+    border: 1px solid var(--demo-border);
+    border-radius: var(--demo-radius-sm);
+  }
+
+  &__tagline {
+    margin-left: 8px;
+    font-size: 12px;
+    color: var(--demo-text-muted);
+  }
+
+  &__actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+}
+
+.demo-body {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  min-height: 0;
+}
+
+.demo-stage {
+  position: relative;
+  background: var(--demo-bg-stage);
+}
+
+/* ---------------------- run log ---------------------- */
+
+.demo-runlog {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  background: var(--demo-log-bg);
+  border-top: 1px solid #1e293b;
+  color: var(--demo-log-fg);
+  font-family: var(--demo-mono);
+  font-size: 11px;
+  line-height: 1.5;
+
+  &__head {
+    margin-bottom: 4px;
+    font-weight: 600;
+    color: var(--demo-log-head);
+  }
+
+  &__row {
+    white-space: pre-wrap;
+
+    &--success { color: var(--demo-log-success); }
+    &--error   { color: var(--demo-log-error); }
+    &--skip    { color: var(--demo-log-skip); }
+    &--log     { color: var(--demo-log-text); }
+    &--meta    { color: var(--demo-log-meta); }
+  }
+}

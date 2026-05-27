@@ -8,3 +8,4 @@ dist/
 coverage/
 .turbo/
 *.tsbuildinfo
+*.png

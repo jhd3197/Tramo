@@ -214,6 +214,44 @@ const aiPrompt: NodeExecutor = {
 };
 
 /* ====================================================================== */
+/* integrations — brand-icon demo stubs                                     */
+/* ====================================================================== */
+
+/* These three forward the input through after logging that they "would"
+ * have called the third-party API. Real implementations wrap the same
+ * config shape — keeping the editor-side definitions stable while the
+ * executor layer grows. */
+
+const telegramMessage: NodeExecutor = {
+  id: 'telegram-message',
+  execute: (ctx) => {
+    const text = renderTemplate(String(ctx.config.text ?? ''), ctx.inputs.in);
+    const chatId = String(ctx.config.chatId ?? '');
+    ctx.log.info(`telegram (stub) → ${chatId}: ${text}`);
+    return { out: { chatId, text, ok: true } };
+  },
+};
+
+const githubIssue: NodeExecutor = {
+  id: 'github-issue',
+  execute: (ctx) => {
+    const repo = String(ctx.config.repo ?? '');
+    const title = renderTemplate(String(ctx.config.title ?? ''), ctx.inputs.in);
+    ctx.log.info(`github (stub) → ${repo} issue: ${title}`);
+    return { out: { repo, title, ok: true } };
+  },
+};
+
+const discordMessage: NodeExecutor = {
+  id: 'discord-message',
+  execute: (ctx) => {
+    const content = renderTemplate(String(ctx.config.content ?? ''), ctx.inputs.in);
+    ctx.log.info(`discord (stub): ${content}`);
+    return { out: { content, ok: true } };
+  },
+};
+
+/* ====================================================================== */
 /* exports                                                                  */
 /* ====================================================================== */
 
@@ -228,6 +266,9 @@ export const BUILTIN_EXECUTORS: NodeExecutor[] = [
   ifNode,
   merge,
   aiPrompt,
+  telegramMessage,
+  githubIssue,
+  discordMessage,
 ];
 
 export const BUILTIN_EXECUTOR_REGISTRY: ExecutorRegistry = createExecutorRegistry(BUILTIN_EXECUTORS);

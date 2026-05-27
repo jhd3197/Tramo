@@ -4,11 +4,18 @@ export {
   type UseWorkflowOptions,
   type SaveState,
   type SaveStatus,
-  type TramoNodeData,
-  type TramoXYNode,
 } from './useWorkflow.js';
-export { WorkflowCanvas, type WorkflowCanvasProps } from './WorkflowCanvas.js';
-export { TramoNode, type TramoNodeProps } from './TramoNode.js';
+export { Canvas, type CanvasProps } from './Canvas.js';
+export { NodeView, type NodeViewProps } from './NodeView.js';
+export { Edge, type EdgeProps } from './Edge.js';
+export { PlusButton, type PlusButtonProps } from './PlusButton.js';
+export { NodeIcon, type NodeIconProps } from './icons.js';
+export { renderTitleWithVars } from './renderTitle.js';
+export {
+  layoutWorkflow,
+  type LayoutOptions,
+  type LayoutResult,
+  type NodeLayout,
+} from './layout.js';
 export { NodeInspector, type NodeInspectorProps } from './NodeInspector.js';
-export { NodesPanel, type NodesPanelProps, DRAG_MIME } from './NodesPanel.js';
 export { RightRail, type RightRailProps, type RightRailTab } from './RightRail.js';

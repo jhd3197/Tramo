@@ -1,23 +1,14 @@
-import { useCallback, useMemo, useState, type DragEvent } from 'react';
+import { useCallback, useState } from 'react';
 import {
-  BUILTIN_NODES,
   BUILTIN_REGISTRY,
   applyPatches,
   emptyDoc,
   newEdgeId,
   newNodeId,
-  type NodeDefinition,
   type Patch,
   type WorkflowDoc,
 } from 'tramo';
-import {
-  NodesPanel,
-  RightRail,
-  WorkflowCanvas,
-  useWorkflow,
-  DRAG_MIME,
-} from 'tramo/react';
-import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
+import { Canvas, RightRail, useWorkflow } from 'tramo/react';
 import { BUILTIN_EXECUTOR_REGISTRY, run, type RunEvent } from 'tramo-runtime';
 import { SAMPLE_DOC } from './sample.js';
 
@@ -34,14 +25,6 @@ function loadInitialDoc(): WorkflowDoc {
 }
 
 export function App() {
-  return (
-    <ReactFlowProvider>
-      <Editor />
-    </ReactFlowProvider>
-  );
-}
-
-function Editor() {
   const [resetCounter, setResetCounter] = useState(0);
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [running, setRunning] = useState(false);
@@ -52,70 +35,6 @@ function Editor() {
     saveDoc: (doc) => localStorage.setItem(STORAGE_KEY, JSON.stringify(doc)),
     key: resetCounter,
   });
-
-  const rf = useReactFlow();
-
-  /* ---------- palette → canvas drag/drop ---------- */
-
-  const onDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
-  }, []);
-
-  const onDrop = useCallback(
-    (e: DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      const raw = e.dataTransfer.getData(DRAG_MIME);
-      if (!raw) return;
-      let payload: { tramoNodeType?: string } = {};
-      try {
-        payload = JSON.parse(raw);
-      } catch {
-        return;
-      }
-      if (!payload.tramoNodeType) return;
-      const def = BUILTIN_NODES.find((d) => d.id === payload.tramoNodeType);
-      if (!def) return;
-      const position = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-      insertNode(def, position);
-    },
-    [rf],
-  );
-
-  const insertNode = useCallback(
-    (def: NodeDefinition, position: { x: number; y: number }) => {
-      const config: Record<string, unknown> = {};
-      for (const f of def.fields) {
-        if (f.default !== undefined) config[f.key] = f.default;
-      }
-      workflow.applyPatch({
-        kind: 'add-node',
-        node: {
-          id: newNodeId(),
-          type: def.id,
-          position,
-          config,
-        },
-      });
-    },
-    [workflow],
-  );
-
-  /* ---------- palette click → insert at viewport center ---------- */
-
-  const onInsertFromPalette = useCallback(
-    (def: NodeDefinition) => {
-      const viewport = rf.getViewport();
-      const { width, height } = rf.toObject() as unknown as { width?: number; height?: number };
-      // Fallback if width/height aren't published (older XYFlow): use a fixed offset.
-      const cx = ((width ?? 800) / 2 - viewport.x) / viewport.zoom;
-      const cy = ((height ?? 500) / 2 - viewport.y) / viewport.zoom;
-      insertNode(def, { x: cx, y: cy });
-    },
-    [insertNode, rf],
-  );
-
-  /* ---------- Run! ---------- */
 
   const runFlow = useCallback(async () => {
     if (!workflow.doc) return;
@@ -130,19 +49,14 @@ function Editor() {
     }
   }, [workflow.doc]);
 
-  /* ---------- reset to sample ---------- */
-
   const reset = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
     setEvents([]);
     setResetCounter((n) => n + 1);
   }, []);
 
-  /* ---------- bonus: load a non-trivial example ---------- */
-
   const loadExample = useCallback(() => {
-    const example = buildExampleDoc();
-    workflow.setDoc(example);
+    workflow.setDoc(buildExampleDoc());
   }, [workflow]);
 
   return (
@@ -170,10 +84,8 @@ function Editor() {
       </header>
 
       <div className="demo-body">
-        <NodesPanel registry={BUILTIN_REGISTRY} onInsert={onInsertFromPalette} />
-
-        <main className="demo-stage" onDragOver={onDragOver} onDrop={onDrop}>
-          <WorkflowCanvas workflow={workflow} />
+        <main className="demo-stage">
+          <Canvas workflow={workflow} />
           {events.length > 0 ? <RunLog events={events} /> : null}
         </main>
 
@@ -255,7 +167,6 @@ function buildExampleDoc(): WorkflowDoc {
       node: {
         id: tId,
         type: 'manual-trigger',
-        position: { x: 0, y: 120 },
         config: { payload: '{"user":"juan"}' },
       },
     },
@@ -264,7 +175,7 @@ function buildExampleDoc(): WorkflowDoc {
       node: {
         id: httpId,
         type: 'http-request',
-        position: { x: 280, y: 120 },
+        label: 'Fetch GitHub user {{user}}',
         config: {
           url: 'https://api.github.com/users/{{user}}',
           method: 'GET',
@@ -279,7 +190,7 @@ function buildExampleDoc(): WorkflowDoc {
       node: {
         id: pickId,
         type: 'js-transform',
-        position: { x: 560, y: 120 },
+        label: 'Pick name + public repos',
         config: { expression: 'return { name: input.data.name, repos: input.data.public_repos };' },
       },
     },
@@ -288,7 +199,7 @@ function buildExampleDoc(): WorkflowDoc {
       node: {
         id: tplId,
         type: 'template',
-        position: { x: 840, y: 120 },
+        label: 'Render greeting for {{name}}',
         config: { template: '{{name}} has {{repos}} public repos.' },
       },
     },
@@ -297,7 +208,7 @@ function buildExampleDoc(): WorkflowDoc {
       node: {
         id: logId,
         type: 'log',
-        position: { x: 1120, y: 120 },
+        label: 'Print {{name}}',
         config: { level: 'info', prefix: 'github:' },
       },
     },

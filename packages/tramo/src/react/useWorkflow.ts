@@ -1,31 +1,22 @@
 /**
  * useWorkflow — the htmlstudio `useVisualEdit` equivalent for tramo.
  *
- * Holds the WorkflowDoc state, exposes XYFlow-ready `nodes` / `edges`
- * derived from it, and provides handlers that translate XYFlow callbacks
- * (drag, connect, delete) into typed Patches applied to the doc.
+ * Owns the WorkflowDoc state, tracks the currently-selected node, and
+ * persists changes (debounced) to a host-provided saveDoc callback. The
+ * canvas engine reads `doc` directly and computes layout from it; this
+ * hook deliberately does NOT shape the data for any canvas library.
  *
  *   1. loadDoc()          → initial doc (sync or async).
  *   2. saveDoc(doc)       → called debounced after every patch (optional).
- *   3. visual handlers    → translate XYFlow events into patches.
- *   4. applyPatch(patch)  → direct programmatic mutation (also used by the agent layer).
+ *   3. applyPatch(patch)  → only mutation entry point (humans and agents
+ *                           call this through the same channel).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type {
-  Connection,
-  Edge as XYEdge,
-  EdgeChange,
-  Node as XYNode,
-  NodeChange,
-} from '@xyflow/react';
 import { applyPatch, emptyDoc } from '../patches.js';
-import { newEdgeId } from '../ids.js';
 import type {
-  NodeDefinition,
   Patch,
   WorkflowDoc,
-  WorkflowEdge,
   WorkflowNode,
 } from '../types.js';
 import type { NodeRegistry } from '../nodes.js';
@@ -43,7 +34,8 @@ export interface UseWorkflowOptions {
   loadDoc: () => Promise<WorkflowDoc> | WorkflowDoc;
   /** Persist the doc. Called after a debounce on every patch. */
   saveDoc?: (doc: WorkflowDoc) => Promise<void> | void;
-  /** Node registry — used to look up display data for canvas rendering. */
+  /** Node registry — exposed so callers can look up definitions for the
+   *  currently-selected node without a second prop. */
   registry: NodeRegistry;
   /** When false, the hook is a no-op (doc stays null). */
   enabled?: boolean;
@@ -53,29 +45,12 @@ export interface UseWorkflowOptions {
   saveDebounceMs?: number;
 }
 
-/**
- * The XYFlow node data attached to each rendered node. We keep the canonical
- * doc node here so custom node renderers can reach into it without a second
- * lookup.
- */
-export interface TramoNodeData {
-  /** Discriminator so XYFlow's data type checks pass. */
-  [key: string]: unknown;
-  node: WorkflowNode;
-  definition: NodeDefinition | undefined;
-}
-
-export type TramoXYNode = XYNode<TramoNodeData, 'tramo'>;
-
 export interface WorkflowHandle {
   doc: WorkflowDoc | null;
-  /** XYFlow-shaped nodes derived from the doc. */
-  nodes: TramoXYNode[];
-  /** XYFlow-shaped edges derived from the doc. */
-  edges: XYEdge[];
 
-  /** Currently-selected node id (single selection, like htmlstudio). */
+  /** Currently-selected node (single selection, like htmlstudio). */
   selection: WorkflowNode | null;
+  selectedId: string | null;
   setSelection: (id: string | null) => void;
   clearSelection: () => void;
 
@@ -84,11 +59,7 @@ export interface WorkflowHandle {
   /** Replace the entire doc. */
   setDoc: (doc: WorkflowDoc) => void;
 
-  /* XYFlow handlers — wire these directly to <ReactFlow /> props. */
-  onNodesChange: (changes: NodeChange[]) => void;
-  onEdgesChange: (changes: EdgeChange[]) => void;
-  onConnect: (connection: Connection) => void;
-
+  registry: NodeRegistry;
   ready: boolean;
   saveState: SaveState;
 }
@@ -121,7 +92,7 @@ export function useWorkflow({
     Promise.resolve(loadDoc())
       .then((d) => {
         if (cancelled) return;
-        setDocState(d);
+        setDocState(d ?? emptyDoc());
         setReady(true);
       })
       .catch((err) => {
@@ -177,6 +148,10 @@ export function useWorkflow({
         scheduleSave(r.doc);
         return r.doc;
       });
+      // If we just removed the selected node, drop the selection.
+      if (patch.kind === 'remove-node') {
+        setSelectedId((s) => (s === patch.id ? null : s));
+      }
     },
     [scheduleSave],
   );
@@ -184,79 +159,6 @@ export function useWorkflow({
   const setDoc = useCallback(
     (next: WorkflowDoc) => {
       applyPatchInternal({ kind: 'set-full-doc', doc: next });
-    },
-    [applyPatchInternal],
-  );
-
-  /* ---------- XYFlow-shaped derivations ---------- */
-
-  const xyNodes = useMemo<TramoXYNode[]>(() => {
-    if (!doc) return [];
-    return doc.nodes.map((n) => ({
-      id: n.id,
-      type: 'tramo',
-      position: n.position,
-      data: { node: n, definition: registry.get(n.type) },
-      selected: n.id === selectedId,
-    }));
-  }, [doc, selectedId, registry]);
-
-  const xyEdges = useMemo<XYEdge[]>(() => {
-    if (!doc) return [];
-    return doc.edges.map((e) => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      ...(e.sourceHandle ? { sourceHandle: e.sourceHandle } : {}),
-      ...(e.targetHandle ? { targetHandle: e.targetHandle } : {}),
-      type: 'default',
-    }));
-  }, [doc]);
-
-  /* ---------- XYFlow callbacks → patches ---------- */
-
-  const onNodesChange = useCallback(
-    (changes: NodeChange[]) => {
-      for (const change of changes) {
-        if (change.type === 'position' && change.position && !change.dragging) {
-          applyPatchInternal({
-            kind: 'move-node',
-            id: change.id,
-            position: change.position,
-          });
-        } else if (change.type === 'remove') {
-          applyPatchInternal({ kind: 'remove-node', id: change.id });
-          setSelectedId((s) => (s === change.id ? null : s));
-        } else if (change.type === 'select') {
-          setSelectedId(change.selected ? change.id : null);
-        }
-      }
-    },
-    [applyPatchInternal],
-  );
-
-  const onEdgesChange = useCallback(
-    (changes: EdgeChange[]) => {
-      for (const change of changes) {
-        if (change.type === 'remove') {
-          applyPatchInternal({ kind: 'remove-edge', id: change.id });
-        }
-      }
-    },
-    [applyPatchInternal],
-  );
-
-  const onConnect = useCallback(
-    (connection: Connection) => {
-      if (!connection.source || !connection.target) return;
-      const edge: WorkflowEdge = {
-        id: newEdgeId(),
-        source: connection.source,
-        target: connection.target,
-        ...(connection.sourceHandle ? { sourceHandle: connection.sourceHandle } : {}),
-        ...(connection.targetHandle ? { targetHandle: connection.targetHandle } : {}),
-      };
-      applyPatchInternal({ kind: 'add-edge', edge });
     },
     [applyPatchInternal],
   );
@@ -273,16 +175,13 @@ export function useWorkflow({
 
   return {
     doc,
-    nodes: xyNodes,
-    edges: xyEdges,
     selection,
+    selectedId,
     setSelection,
     clearSelection,
     applyPatch: applyPatchInternal,
     setDoc,
-    onNodesChange,
-    onEdgesChange,
-    onConnect,
+    registry,
     ready,
     saveState,
   };

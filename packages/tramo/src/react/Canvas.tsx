@@ -1,0 +1,430 @@
+/**
+ * Canvas — tramo's own pan/zoom workflow renderer.
+ *
+ * Replaces XYFlow. The model:
+ *   - Read the doc directly off the WorkflowHandle.
+ *   - Compute node positions with `layoutWorkflow` every render. Layout
+ *     is cheap (O(N+E)) and pure, so we don't memo aggressively.
+ *   - Render every edge as an SVG path and every node as an absolute-
+ *     positioned div, all inside a single transformed `<div>` that we
+ *     pan and zoom by mutating its `transform` style.
+ *   - A `+` button sits at every edge midpoint and below every leaf;
+ *     clicking it opens a popover anchored to that point with the
+ *     palette filtered to the right successor set.
+ *
+ * Drag-to-reposition nodes is intentionally absent — positions are a
+ * function of the doc graph, so the only way to "move" a node is to
+ * change its edges.
+ */
+
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
+} from 'react';
+import { Edge } from './Edge.js';
+import { NodeView } from './NodeView.js';
+import { NodeIcon } from './icons.js';
+import { PlusButton } from './PlusButton.js';
+import { layoutWorkflow, type NodeLayout } from './layout.js';
+import { newNodeId, newEdgeId } from '../ids.js';
+import type { NodeDefinition } from '../types.js';
+import type { WorkflowHandle } from './useWorkflow.js';
+
+export interface CanvasProps {
+  workflow: WorkflowHandle;
+  /** Node width in canvas units. Default 240. */
+  nodeWidth?: number;
+  /** Node height in canvas units. Default 64. */
+  nodeHeight?: number;
+  /** Min / max zoom levels. */
+  minZoom?: number;
+  maxZoom?: number;
+}
+
+interface InsertionTarget {
+  /** Where to anchor the popover in screen coordinates. */
+  screenX: number;
+  screenY: number;
+  /** "after" inserts a new node after `sourceId`, splitting the edge to
+   *  the existing target (if any). "leaf" appends after a leaf node. */
+  mode: 'between' | 'after-leaf' | 'first';
+  sourceId?: string;
+  targetId?: string;
+  /** The edge to split when mode === 'between'. */
+  edgeId?: string;
+}
+
+const NODE_WIDTH_DEFAULT = 300;
+// Total node height = category pill (~26px) + 6px gap + card (~84px) ≈ 116
+const NODE_HEIGHT_DEFAULT = 116;
+const PLUS_OFFSET = 36; // distance below a leaf node for the trailing +
+
+export function Canvas({
+  workflow,
+  nodeWidth = NODE_WIDTH_DEFAULT,
+  nodeHeight = NODE_HEIGHT_DEFAULT,
+  minZoom = 0.4,
+  maxZoom = 2,
+}: CanvasProps) {
+  const { doc, selectedId, setSelection, clearSelection, registry, applyPatch } = workflow;
+
+  /* ---------- pan & zoom ---------- */
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const [view, setView] = useState({ x: 0, y: 0, zoom: 1 });
+  const panState = useRef<{ startX: number; startY: number; vx: number; vy: number } | null>(null);
+
+  const onPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    // Only pan when clicking the canvas background. Anything interactive
+    // (node, plus, popover) handles its own pointer events; capturing here
+    // would steal the click before it reaches them.
+    const target = e.target as HTMLElement;
+    if (target.closest('.tr-node-v2, .tr-plus, .tr-popover, .tr-popover-scrim')) return;
+    if (e.button !== 0) return;
+    clearSelection();
+    panState.current = { startX: e.clientX, startY: e.clientY, vx: view.x, vy: view.y };
+    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+  }, [clearSelection, view.x, view.y]);
+
+  const onPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    const s = panState.current;
+    if (!s) return;
+    setView((v) => ({ ...v, x: s.vx + (e.clientX - s.startX), y: s.vy + (e.clientY - s.startY) }));
+  }, []);
+
+  const endPan = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    panState.current = null;
+    try {
+      (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
+    } catch {
+      // pointer was never captured, fine
+    }
+  }, []);
+
+  const onWheel = useCallback(
+    (e: ReactWheelEvent<HTMLDivElement>) => {
+      if (!wrapperRef.current) return;
+      // Only respond to ctrl/meta + wheel for zoom; plain wheel pans vertically.
+      const wantsZoom = e.ctrlKey || e.metaKey;
+      const rect = wrapperRef.current.getBoundingClientRect();
+      if (wantsZoom) {
+        e.preventDefault();
+        const cx = e.clientX - rect.left;
+        const cy = e.clientY - rect.top;
+        setView((v) => {
+          const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+          const nextZoom = clamp(v.zoom * factor, minZoom, maxZoom);
+          // Keep the cursor pinned to the same canvas-space point.
+          const worldX = (cx - v.x) / v.zoom;
+          const worldY = (cy - v.y) / v.zoom;
+          return {
+            zoom: nextZoom,
+            x: cx - worldX * nextZoom,
+            y: cy - worldY * nextZoom,
+          };
+        });
+      } else {
+        setView((v) => ({ ...v, x: v.x - e.deltaX, y: v.y - e.deltaY }));
+      }
+    },
+    [maxZoom, minZoom],
+  );
+
+  /* ---------- layout ---------- */
+  const layout = useMemo(() => {
+    if (!doc) return null;
+    return layoutWorkflow(doc, { nodeWidth, rowHeight: nodeHeight + 72 });
+  }, [doc, nodeWidth, nodeHeight]);
+
+  /* ---------- centre on first layout ---------- */
+  const didCentreRef = useRef(false);
+  useEffect(() => {
+    if (didCentreRef.current || !layout || !wrapperRef.current || layout.positions.size === 0) {
+      return;
+    }
+    const rect = wrapperRef.current.getBoundingClientRect();
+    setView({ x: rect.width / 2, y: 60, zoom: 1 });
+    didCentreRef.current = true;
+  }, [layout]);
+
+  /* ---------- insertion popover ---------- */
+  const [insertion, setInsertion] = useState<InsertionTarget | null>(null);
+
+  const openInsertion = useCallback(
+    (target: InsertionTarget) => setInsertion(target),
+    [],
+  );
+  const closeInsertion = useCallback(() => setInsertion(null), []);
+
+  const handleInsert = useCallback(
+    (def: NodeDefinition) => {
+      if (!insertion || !doc) return;
+      const config: Record<string, unknown> = {};
+      for (const f of def.fields) {
+        if (f.default !== undefined) config[f.key] = f.default;
+      }
+      const newId = newNodeId();
+
+      if (insertion.mode === 'between' && insertion.edgeId && insertion.sourceId && insertion.targetId) {
+        // Split the edge: remove old, add node, add source→new + new→target.
+        applyPatch({ kind: 'remove-edge', id: insertion.edgeId });
+        applyPatch({ kind: 'add-node', node: { id: newId, type: def.id, config } });
+        applyPatch({
+          kind: 'add-edge',
+          edge: { id: newEdgeId(), source: insertion.sourceId, target: newId },
+        });
+        applyPatch({
+          kind: 'add-edge',
+          edge: { id: newEdgeId(), source: newId, target: insertion.targetId },
+        });
+      } else if (insertion.mode === 'after-leaf' && insertion.sourceId) {
+        applyPatch({ kind: 'add-node', node: { id: newId, type: def.id, config } });
+        applyPatch({
+          kind: 'add-edge',
+          edge: { id: newEdgeId(), source: insertion.sourceId, target: newId },
+        });
+      } else {
+        // First node — no edges yet.
+        applyPatch({ kind: 'add-node', node: { id: newId, type: def.id, config } });
+      }
+      setSelection(newId);
+      closeInsertion();
+    },
+    [applyPatch, closeInsertion, doc, insertion, setSelection],
+  );
+
+  /* ---------- derive plus-button anchor points ---------- */
+  const plusAnchors = useMemo(() => {
+    if (!doc || !layout) return { betweens: [] as Array<{ key: string; x: number; y: number; edgeId: string; sourceId: string; targetId: string }>,
+      leaves: [] as Array<{ key: string; x: number; y: number; sourceId: string }>,
+      first: null as null | { x: number; y: number } };
+
+    const betweens = doc.edges
+      .map((e) => {
+        const s = layout.positions.get(e.source);
+        const t = layout.positions.get(e.target);
+        if (!s || !t) return null;
+        // Anchor + to the target's column, just above the target. For
+        // straight (single-column) edges this still sits on the line.
+        // For fan-out branches it sits on the vertical descent into the
+        // target instead of floating in the elbow's horizontal bend.
+        return {
+          key: `edge-${e.id}`,
+          x: t.x,
+          y: t.y - 22,
+          edgeId: e.id,
+          sourceId: e.source,
+          targetId: e.target,
+        };
+      })
+      .filter(Boolean) as Array<{ key: string; x: number; y: number; edgeId: string; sourceId: string; targetId: string }>;
+
+    const outgoingCount = new Map<string, number>();
+    for (const e of doc.edges) {
+      outgoingCount.set(e.source, (outgoingCount.get(e.source) ?? 0) + 1);
+    }
+    const leaves: Array<{ key: string; x: number; y: number; sourceId: string }> = [];
+    for (const n of doc.nodes) {
+      if ((outgoingCount.get(n.id) ?? 0) === 0) {
+        const p = layout.positions.get(n.id);
+        if (!p) continue;
+        leaves.push({
+          key: `leaf-${n.id}`,
+          x: p.x,
+          y: p.y + nodeHeight + PLUS_OFFSET,
+          sourceId: n.id,
+        });
+      }
+    }
+
+    const first = doc.nodes.length === 0 ? { x: 0, y: 60 } : null;
+    return { betweens, leaves, first };
+  }, [doc, layout, nodeHeight]);
+
+  /* ---------- render ---------- */
+  if (!doc || !layout) {
+    return <div className="tr-canvas-v2 tr-canvas-v2--empty" />;
+  }
+
+  const transformStyle: CSSProperties = {
+    transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`,
+    transformOrigin: '0 0',
+  };
+
+  return (
+    <div
+      ref={wrapperRef}
+      className="tr-canvas-v2"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endPan}
+      onPointerCancel={endPan}
+      onWheel={onWheel}
+    >
+      <div className="tr-canvas-v2__world" style={transformStyle}>
+        <svg className="tr-canvas-v2__edges" overflow="visible">
+          {doc.edges.map((e) => {
+            const s = layout.positions.get(e.source);
+            const t = layout.positions.get(e.target);
+            if (!s || !t) return null;
+            return (
+              <Edge
+                key={e.id}
+                id={e.id}
+                x1={s.x}
+                y1={s.y + nodeHeight}
+                x2={t.x}
+                y2={t.y}
+              />
+            );
+          })}
+        </svg>
+
+        {doc.nodes.map((n) => {
+          const p = layout.positions.get(n.id);
+          if (!p) return null;
+          return (
+            <NodeView
+              key={n.id}
+              node={n}
+              definition={registry.get(n.type)}
+              x={p.x}
+              y={p.y}
+              width={nodeWidth}
+              height={nodeHeight}
+              selected={n.id === selectedId}
+              onClick={() => setSelection(n.id)}
+            />
+          );
+        })}
+
+        {plusAnchors.betweens.map((a) => (
+          <PlusButton
+            key={a.key}
+            x={a.x}
+            y={a.y}
+            onClick={() => openInsertion({
+              mode: 'between',
+              screenX: a.x,
+              screenY: a.y,
+              edgeId: a.edgeId,
+              sourceId: a.sourceId,
+              targetId: a.targetId,
+            })}
+            label="Insert step here"
+          />
+        ))}
+        {plusAnchors.leaves.map((a) => (
+          <PlusButton
+            key={a.key}
+            x={a.x}
+            y={a.y}
+            onClick={() => openInsertion({
+              mode: 'after-leaf',
+              screenX: a.x,
+              screenY: a.y,
+              sourceId: a.sourceId,
+            })}
+            label="Add next step"
+          />
+        ))}
+        {plusAnchors.first && (
+          <PlusButton
+            x={plusAnchors.first.x}
+            y={plusAnchors.first.y}
+            onClick={() => openInsertion({
+              mode: 'first',
+              screenX: plusAnchors.first!.x,
+              screenY: plusAnchors.first!.y,
+            })}
+            label="Add the first step"
+          />
+        )}
+      </div>
+
+      {insertion && (
+        <InsertionPopover
+          insertion={insertion}
+          view={view}
+          registry={registry}
+          onPick={handleInsert}
+          onClose={closeInsertion}
+        />
+      )}
+    </div>
+  );
+}
+
+function InsertionPopover({
+  insertion,
+  view,
+  registry,
+  onPick,
+  onClose,
+}: {
+  insertion: InsertionTarget;
+  view: { x: number; y: number; zoom: number };
+  registry: WorkflowHandle['registry'];
+  onPick: (def: NodeDefinition) => void;
+  onClose: () => void;
+}) {
+  // Insertion coords are in *world* (canvas) space; project to screen-relative
+  // pixels for absolute positioning inside the wrapper.
+  const left = insertion.screenX * view.zoom + view.x;
+  const top = insertion.screenY * view.zoom + view.y + 18;
+
+  const grouped = registry.byCategory();
+  const categories = Object.keys(grouped).sort();
+
+  // Stop wheel/pointer events from bubbling up to the canvas wrapper, which
+  // would otherwise pan or zoom while the user is interacting with the popover.
+  const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
+
+  return (
+    <>
+      <div className="tr-popover-scrim" onClick={onClose} />
+      <div
+        className="tr-popover"
+        style={{ left, top }}
+        onWheel={stop}
+        onPointerDown={stop}
+        onPointerMove={stop}
+        onPointerUp={stop}
+      >
+        <div className="tr-popover__head">Add a step</div>
+        <div className="tr-popover__body" onWheel={stop}>
+          {categories.map((cat) => (
+            <section key={cat} className="tr-popover__group">
+              <div className="tr-popover__group-head">{cat}</div>
+              {grouped[cat]!.map((def) => (
+                <button
+                  key={def.id}
+                  type="button"
+                  className="tr-popover__item"
+                  onClick={() => onPick(def)}
+                >
+                  <span className="tr-popover__item-icon" aria-hidden>
+                    <NodeIcon definition={def} size={18} />
+                  </span>
+                  <span className="tr-popover__item-body">
+                    <span className="tr-popover__item-name">{def.name}</span>
+                    <span className="tr-popover__item-desc">{def.description}</span>
+                  </span>
+                </button>
+              ))}
+            </section>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function clamp(v: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, v));
+}

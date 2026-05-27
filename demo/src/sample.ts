@@ -15,7 +15,6 @@ function build(): WorkflowDoc {
       node: {
         id: tId,
         type: 'manual-trigger',
-        position: { x: 80, y: 160 },
         config: { payload: '{"hello":"world"}' },
       },
     },
@@ -24,7 +23,7 @@ function build(): WorkflowDoc {
       node: {
         id: lId,
         type: 'log',
-        position: { x: 380, y: 160 },
+        label: 'Log {{payload.hello}}',
         config: { level: 'info', prefix: 'demo:' },
       },
     },

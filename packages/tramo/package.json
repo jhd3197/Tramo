@@ -39,16 +39,16 @@
     "LICENSE"
   ],
   "peerDependencies": {
-    "@xyflow/react": "^12.0.0",
-    "@phosphor-icons/react": "^2.0.0",
     "react": "^18.0.0 || ^19.0.0",
     "react-dom": "^18.0.0 || ^19.0.0"
   },
   "peerDependenciesMeta": {
-    "@xyflow/react": { "optional": true },
-    "react": { "optional": true },
-    "react-dom": { "optional": true },
-    "@phosphor-icons/react": { "optional": true }
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
   },
   "scripts": {
     "build": "npm run build:ts && npm run build:css",
@@ -60,11 +60,11 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "nanoid": "^5.0.0"
+    "lucide-react": "^1.16.0",
+    "nanoid": "^5.0.0",
+    "simple-icons": "^16.21.0"
   },
   "devDependencies": {
-    "@xyflow/react": "^12.3.0",
-    "@phosphor-icons/react": "^2.1.10",
     "@types/node": "^20.11.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
@@ -78,8 +78,6 @@
     "workflow",
     "node-editor",
     "automation",
-    "xyflow",
-    "react-flow",
     "n8n",
     "zapier",
     "ai",

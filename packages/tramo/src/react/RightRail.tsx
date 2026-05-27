@@ -1,7 +1,7 @@
 /**
  * RightRail — tabbed sidebar with the NodeInspector by default. Matches
  * htmlstudio's RightRail surface so consumers can drop it in next to a
- * WorkflowCanvas and get an editor in one composition.
+ * Canvas and get an editor in one composition.
  */
 
 import { useEffect, useState, type ReactNode } from 'react';

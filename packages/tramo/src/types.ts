@@ -33,8 +33,6 @@ export interface WorkflowNode {
   id: string;
   /** References a NodeDefinition.id from the registry. */
   type: string;
-  /** Position on the canvas (XYFlow coordinate space). */
-  position: { x: number; y: number };
   /** Typed against the matching NodeDefinition.fields. */
   config: Record<string, unknown>;
   /** Optional display label override; defaults to NodeDefinition.name. */
@@ -56,16 +54,19 @@ export interface WorkflowEdge {
 /* ====================================================================== */
 
 /**
- * Seven patch kinds — the only ways to mutate a WorkflowDoc.
+ * Six patch kinds — the only ways to mutate a WorkflowDoc.
  *
- * Mirrors htmlstudio's Patch union in spirit: narrow patches (move-node,
- * update-node-config) for surgical edits, broader patches (set-full-doc)
+ * Mirrors htmlstudio's Patch union in spirit: narrow patches
+ * (update-node-config) for surgical edits, broader patches (set-full-doc)
  * for whole-document replacement (e.g. an LLM regeneration).
+ *
+ * Note: there is no `move-node` patch. Node positions are auto-computed
+ * by the canvas engine from the DAG structure — they aren't stored on
+ * the doc at all.
  */
 export type Patch =
   | { kind: 'add-node'; node: WorkflowNode }
   | { kind: 'update-node-config'; id: string; config: Record<string, unknown>; replace?: boolean }
-  | { kind: 'move-node'; id: string; position: { x: number; y: number } }
   | { kind: 'remove-node'; id: string }
   | { kind: 'add-edge'; edge: WorkflowEdge }
   | { kind: 'remove-edge'; id: string }
@@ -143,14 +144,18 @@ export interface NodeDefinition {
   name: string;
   category: NodeCategory;
   description: string;
-  /** Phosphor icon name or emoji glyph for palette / canvas cards. */
+  /** Lucide icon name (e.g. "Play", "Globe", "Code"). Rendered when
+   *  `iconBrand` is unset. */
   icon: string;
+  /** Optional simple-icons slug (e.g. "slack", "github"). When set,
+   *  the canvas and palette render the brand SVG instead of `icon`. */
+  iconBrand?: string;
   /** Input ports (empty for triggers). */
   inputs: NodePort[];
   /** Output ports. */
   outputs: NodePort[];
   /** Editable fields rendered in the inspector. */
   fields: NodeField[];
-  /** Accent color (hex) — used on the canvas node's left border. Optional. */
+  /** Accent color (hex) — used on the canvas node's top stripe. Optional. */
   color?: string;
 }

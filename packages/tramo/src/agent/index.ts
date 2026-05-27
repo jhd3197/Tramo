@@ -44,19 +44,10 @@ function patchSchema(nodeTypes: string[] | null): object {
   const workflowNode = {
     type: 'object',
     additionalProperties: false,
-    required: ['id', 'type', 'position', 'config'],
+    required: ['id', 'type', 'config'],
     properties: {
       id: { type: 'string', description: 'Stable id (use newNodeId() conventions).' },
       type: nodeTypeField,
-      position: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['x', 'y'],
-        properties: {
-          x: { type: 'number' },
-          y: { type: 'number' },
-        },
-      },
       config: { type: 'object' },
       label: { type: 'string' },
     },
@@ -91,7 +82,7 @@ function patchSchema(nodeTypes: string[] | null): object {
     $schema: 'http://json-schema.org/draft-07/schema#',
     title: 'Patch',
     description:
-      'One mutation to a tramo WorkflowDoc. Every editable action — add or remove a node or edge, update a node config, move a node, or replace the entire doc — maps to exactly one of these kinds.',
+      'One mutation to a tramo WorkflowDoc. Every editable action — add or remove a node or edge, update a node config, or replace the entire doc — maps to exactly one of these kinds. Node positions are auto-computed from the DAG and are not part of the patch surface.',
     oneOf: [
       {
         type: 'object',
@@ -108,21 +99,6 @@ function patchSchema(nodeTypes: string[] | null): object {
           id: { type: 'string' },
           config: { type: 'object', description: 'Partial config to merge (or replace if replace=true).' },
           replace: { type: 'boolean', description: 'When true, replace the whole config instead of merging.' },
-        },
-      },
-      {
-        type: 'object',
-        additionalProperties: false,
-        required: ['kind', 'id', 'position'],
-        properties: {
-          kind: { const: 'move-node' },
-          id: { type: 'string' },
-          position: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['x', 'y'],
-            properties: { x: { type: 'number' }, y: { type: 'number' } },
-          },
         },
       },
       {
@@ -159,7 +135,7 @@ function patchSchema(nodeTypes: string[] | null): object {
 
 export const PATCH_TOOL_NAME = 'apply_patch';
 const TOOL_DESCRIPTION =
-  'Apply a single Patch to the tramo workflow document. Always emit exactly one patch per tool call. Prefer narrow patches (update-node-config, move-node, add-edge) over broad ones (set-full-doc).';
+  'Apply a single Patch to the tramo workflow document. Always emit exactly one patch per tool call. Prefer narrow patches (update-node-config, add-edge, remove-edge) over broad ones (set-full-doc).';
 
 export interface ProviderToolSpecs {
   anthropic: {
@@ -260,7 +236,7 @@ the intent. If the request is ambiguous, reply in plain text with a short
 clarifying question and do NOT call the tool.
 
 Rules:
-- Prefer narrow patches: update-node-config, move-node, add-edge, remove-edge.
+- Prefer narrow patches: update-node-config, add-edge, remove-edge.
 - Use add-node when a new step is genuinely needed.
 - NEVER use set-full-doc in Tweak mode — that's reserved for Build mode.
 - Target nodes/edges by their existing id. Never invent ids for existing
@@ -275,10 +251,10 @@ Rules:
 - Emit exactly one patch with kind = "set-full-doc".
 - The "doc" must include version: 1, nodes, edges, and meta.
 - Use only node types listed in the tool schema's enum.
-- Lay nodes out left-to-right: triggers at x=0, each downstream rank at
-  x = rank * 280, with y staggered by 120.
 - Connect nodes with edges; default sourceHandle/targetHandle when there's
-  only one of each. Trigger nodes have no inputs.`;
+  only one of each. Trigger nodes have no inputs.
+- Do NOT include "position" on nodes — the canvas auto-lays them out
+  vertically based on the edge graph.`;
 
 /* ====================================================================== */
 /* Runtime validator                                                        */
@@ -311,12 +287,6 @@ export function validatePatch(value: unknown): Patch {
         config: requireObject(v.config, 'update-node-config.config'),
         ...(typeof v.replace === 'boolean' ? { replace: v.replace } : {}),
       };
-    case 'move-node':
-      return {
-        kind: 'move-node',
-        id: requireString(v.id, 'move-node.id'),
-        position: validatePosition(v.position, 'move-node.position'),
-      };
     case 'remove-node':
       return { kind: 'remove-node', id: requireString(v.id, 'remove-node.id') };
     case 'add-edge':
@@ -348,7 +318,6 @@ function validateNode(v: unknown, field: string): WorkflowNode {
   return {
     id: requireString(o.id, `${field}.id`),
     type: requireString(o.type, `${field}.type`),
-    position: validatePosition(o.position, `${field}.position`),
     config: requireObject(o.config, `${field}.config`),
     ...(typeof o.label === 'string' ? { label: o.label } : {}),
   };
@@ -364,15 +333,6 @@ function validateEdge(v: unknown, field: string) {
     ...(typeof o.sourceHandle === 'string' ? { sourceHandle: o.sourceHandle } : {}),
     ...(typeof o.targetHandle === 'string' ? { targetHandle: o.targetHandle } : {}),
   };
-}
-
-function validatePosition(v: unknown, field: string): { x: number; y: number } {
-  if (!isObject(v)) throw new PatchValidationError(`${field} must be an object {x,y}.`);
-  const o = v as Record<string, unknown>;
-  if (typeof o.x !== 'number' || typeof o.y !== 'number') {
-    throw new PatchValidationError(`${field}.x and .y must be numbers.`);
-  }
-  return { x: o.x, y: o.y };
 }
 
 function validateDoc(v: unknown, field: string): WorkflowDoc {
