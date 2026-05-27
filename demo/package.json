@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/free-port.mjs 5181",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --port 5181"
