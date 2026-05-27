@@ -10,10 +10,10 @@ import { useCallback, useEffect, useState } from 'react';
 import type {
   NodeDefinition,
   NodeField,
+  NodeRegistry,
   Patch,
   WorkflowNode,
-} from '../types.js';
-import type { NodeRegistry } from '../nodes.js';
+} from 'tramo-spec';
 import type { SaveState } from './useWorkflow.js';
 
 export interface NodeInspectorProps {

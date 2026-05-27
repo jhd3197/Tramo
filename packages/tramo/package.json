@@ -1,28 +1,9 @@
 {
   "name": "tramo",
   "version": "0.1.0",
-  "description": "Workflow-document-of-truth visual editor primitives (doc, patches, nodes) — the n8n/Zapier-style automation layer, made of small typed pieces.",
+  "description": "Visual node-editor for tramo workflows — React components and LLM-agent glue. Pairs with tramo-spec (the wire format) and tramo-runtime (the executor).",
   "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
-    "./patches": {
-      "types": "./dist/patches.d.ts",
-      "import": "./dist/patches.js"
-    },
-    "./query": {
-      "types": "./dist/query.d.ts",
-      "import": "./dist/query.js"
-    },
-    "./nodes": {
-      "types": "./dist/nodes.d.ts",
-      "import": "./dist/nodes.js"
-    },
     "./react": {
       "types": "./dist/react/index.d.ts",
       "import": "./dist/react/index.js"
@@ -61,8 +42,8 @@
   },
   "dependencies": {
     "lucide-react": "^1.16.0",
-    "nanoid": "^5.0.0",
-    "simple-icons": "^16.21.0"
+    "simple-icons": "^16.21.0",
+    "tramo-spec": "0.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

@@ -7,7 +7,7 @@ import {
   newNodeId,
   type Patch,
   type WorkflowDoc,
-} from 'tramo';
+} from 'tramo-spec';
 import { Canvas, RightRail, useWorkflow } from 'tramo/react';
 import { BUILTIN_EXECUTOR_REGISTRY, run, type RunEvent } from 'tramo-runtime';
 import { SAMPLE_DOC } from './sample.js';

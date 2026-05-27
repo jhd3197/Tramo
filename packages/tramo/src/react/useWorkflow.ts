@@ -13,13 +13,14 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { applyPatch, emptyDoc } from '../patches.js';
-import type {
-  Patch,
-  WorkflowDoc,
-  WorkflowNode,
-} from '../types.js';
-import type { NodeRegistry } from '../nodes.js';
+import {
+  applyPatch,
+  emptyDoc,
+  type NodeRegistry,
+  type Patch,
+  type WorkflowDoc,
+  type WorkflowNode,
+} from 'tramo-spec';
 
 export type SaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
 

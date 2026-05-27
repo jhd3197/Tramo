@@ -14,7 +14,7 @@
  * (not both). Downstream nodes that wired to the unfired port are skipped.
  */
 
-import { topoSort, getIncomingEdges } from 'tramo';
+import { topoSort, getIncomingEdges, SPEC_VERSION } from 'tramo-spec';
 import type {
   ExecutionContext,
   ExecutorRegistry,
@@ -38,6 +38,13 @@ export async function run(
 
   const runId = `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   const signal = options.signal ?? new AbortController().signal;
+
+  /* 0. spec-version compatibility */
+  if (doc.version !== SPEC_VERSION) {
+    const err = `Workflow spec version ${doc.version} is not supported by this runtime (expects ${SPEC_VERSION}).`;
+    emit({ type: 'run-end', runId, ok: false, error: err });
+    return { ok: false, nodeResults: {}, events, error: err };
+  }
 
   /* 1. topo sort + abort on cycle */
   const topo = topoSort(doc);

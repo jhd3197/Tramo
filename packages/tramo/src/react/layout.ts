@@ -15,7 +15,7 @@
  * order to avoid an infinite loop (caller can detect via topoSort).
  */
 
-import type { NodeDefinition, WorkflowDoc } from '../types.js';
+import type { NodeDefinition, WorkflowDoc } from 'tramo-spec';
 
 export interface LayoutOptions {
   /** Width allotted per node slot, used for horizontal centering. */

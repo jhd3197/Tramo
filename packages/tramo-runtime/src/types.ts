@@ -1,4 +1,4 @@
-import type { WorkflowDoc, WorkflowNode } from 'tramo';
+import type { WorkflowDoc, WorkflowNode } from 'tramo-spec';
 
 /* ====================================================================== */
 /* Executor surface                                                         */

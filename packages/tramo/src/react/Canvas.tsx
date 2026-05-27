@@ -32,8 +32,7 @@ import { NodeView } from './NodeView.js';
 import { NodeIcon } from './icons.js';
 import { PlusButton } from './PlusButton.js';
 import { layoutWorkflow, outputOffset, type NodeLayout } from './layout.js';
-import { newNodeId, newEdgeId } from '../ids.js';
-import type { NodeDefinition } from '../types.js';
+import { newNodeId, newEdgeId, type NodeDefinition } from 'tramo-spec';
 import type { WorkflowHandle } from './useWorkflow.js';
 
 export interface CanvasProps {

@@ -1,7 +1,7 @@
 {
-  "name": "tramo-runtime",
+  "name": "tramo-spec",
   "version": "0.1.0",
-  "description": "Executor for tramo workflow documents — topological scheduling, node executors, triggers.",
+  "description": "The tramo workflow spec — pure-data types, document utilities, and the canonical node-definition registry. Shared between the editor (tramo) and every runtime (tramo-runtime, future tramo-runtime-py).",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -11,13 +11,17 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./executors": {
-      "types": "./dist/executors.d.ts",
-      "import": "./dist/executors.js"
+    "./patches": {
+      "types": "./dist/patches.d.ts",
+      "import": "./dist/patches.js"
     },
-    "./triggers": {
-      "types": "./dist/triggers/index.d.ts",
-      "import": "./dist/triggers/index.js"
+    "./query": {
+      "types": "./dist/query.d.ts",
+      "import": "./dist/query.js"
+    },
+    "./nodes": {
+      "types": "./dist/nodes.d.ts",
+      "import": "./dist/nodes.js"
     }
   },
   "files": [
@@ -32,18 +36,16 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "tramo-spec": "0.1.0"
+    "nanoid": "^5.0.0"
   },
   "devDependencies": {
-    "@types/node": "^20.11.0",
     "typescript": "^5.4.0",
     "vitest": "^1.6.0"
   },
   "keywords": [
     "workflow",
-    "runtime",
-    "executor",
-    "scheduler",
+    "spec",
+    "schema",
     "tramo",
     "automation"
   ],

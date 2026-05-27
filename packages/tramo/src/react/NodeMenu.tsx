@@ -20,8 +20,7 @@ import {
   type CSSProperties,
 } from 'react';
 import { MoreVertical, Trash2, AlertCircle, CheckCircle2, Infinity as InfinityIcon } from 'lucide-react';
-import type { Patch, RunAfter, WorkflowNode } from '../types.js';
-import { emptyDoc } from '../patches.js';
+import { emptyDoc, type Patch, type RunAfter, type WorkflowNode } from 'tramo-spec';
 
 export interface NodeMenuProps {
   node: WorkflowNode;

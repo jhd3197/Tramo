@@ -16,7 +16,7 @@ import { CATEGORY_META, NodeIcon } from './icons.js';
 import { outputOffset } from './layout.js';
 import { renderTitleWithVars } from './renderTitle.js';
 import { NodeMenu } from './NodeMenu.js';
-import type { NodeDefinition, Patch, WorkflowNode } from '../types.js';
+import type { NodeDefinition, Patch, WorkflowNode } from 'tramo-spec';
 
 export interface NodeViewProps {
   node: WorkflowNode;

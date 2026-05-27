@@ -4,7 +4,7 @@
  * shape of a tramo workflow and can iterate from there.
  */
 
-import { applyPatches, emptyDoc, newEdgeId, newNodeId, type WorkflowDoc } from 'tramo';
+import { applyPatches, emptyDoc, newEdgeId, newNodeId, type WorkflowDoc } from 'tramo-spec';
 
 function build(): WorkflowDoc {
   const tId = newNodeId();

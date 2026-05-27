@@ -1,3 +1,11 @@
+/**
+ * tramo-spec — the wire contract shared by the editor and every runtime.
+ *
+ * Bumping `SPEC_VERSION` is a breaking change to the document format.
+ * The runner uses it to refuse documents emitted by an incompatible editor.
+ */
+export const SPEC_VERSION = 1 as const;
+
 export * from './types.js';
 export { newNodeId, newEdgeId, isTramoId } from './ids.js';
 export { applyPatch, applyPatches, emptyDoc } from './patches.js';

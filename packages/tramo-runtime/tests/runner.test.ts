@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { applyPatches, emptyDoc, type WorkflowNode } from 'tramo';
+import { applyPatches, emptyDoc, type WorkflowNode } from 'tramo-spec';
 import { BUILTIN_EXECUTOR_REGISTRY, run } from '../src/index.js';
 
 function node(id: string, type: string, config: Record<string, unknown> = {}): WorkflowNode {
-  return { id, type, position: { x: 0, y: 0 }, config };
+  return { id, type, config };
 }
 
 describe('run()', () => {
@@ -28,8 +28,8 @@ describe('run()', () => {
       { kind: 'add-node', node: node('yes', 'log', { prefix: 'YES' }) },
       { kind: 'add-node', node: node('no', 'log', { prefix: 'NO' }) },
       { kind: 'add-edge', edge: { id: 'e1', source: 't', target: 'cond' } },
-      { kind: 'add-edge', edge: { id: 'e2', source: 'cond', target: 'yes', sourceHandle: 'true' } },
-      { kind: 'add-edge', edge: { id: 'e3', source: 'cond', target: 'no', sourceHandle: 'false' } },
+      { kind: 'add-edge', edge: { id: 'e2', source: 'cond', target: 'yes', sourceHandle: 'yes' } },
+      { kind: 'add-edge', edge: { id: 'e3', source: 'cond', target: 'no', sourceHandle: 'no' } },
     ]).doc;
 
     const result = await run(doc, BUILTIN_EXECUTOR_REGISTRY);
