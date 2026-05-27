@@ -79,10 +79,15 @@ function NodeInspectorBody({
    * inputs) — same pattern as htmlstudio's EditInspector.
    */
   const [draft, setDraft] = useState<Record<string, unknown>>(node.config);
+  const [labelDraft, setLabelDraft] = useState<string>(node.label ?? '');
 
   useEffect(() => {
     setDraft(node.config);
   }, [node.id, node.config]);
+
+  useEffect(() => {
+    setLabelDraft(node.label ?? '');
+  }, [node.id, node.label]);
 
   const commit = useCallback(
     (key: string, value: unknown) => {
@@ -100,11 +105,45 @@ function NodeInspectorBody({
     [],
   );
 
+  const commitLabel = useCallback(
+    (raw: string) => {
+      const trimmed = raw.trim();
+      // Empty string clears back to the definition's name. We send
+      // `label: undefined` so the doc drops the key on JSON serialization.
+      const next = trimmed === '' ? undefined : trimmed;
+      if (next === node.label) return;
+      onApply({
+        kind: 'update-node',
+        id: node.id,
+        patch: { label: next as string | undefined },
+      });
+    },
+    [node.id, node.label, onApply],
+  );
+
   return (
     <div className="tr-inspector">
       <div className="tr-inspector__head">
         <div className="tr-inspector__titles">
-          <div className="tr-inspector__name">{def.name}</div>
+          <input
+            type="text"
+            className="tr-inspector__name-input"
+            value={labelDraft}
+            placeholder={def.name}
+            aria-label="Step name"
+            spellCheck={false}
+            onChange={(e) => setLabelDraft(e.target.value)}
+            onBlur={(e) => commitLabel(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                (e.target as HTMLInputElement).blur();
+              } else if (e.key === 'Escape') {
+                setLabelDraft(node.label ?? '');
+                (e.target as HTMLInputElement).blur();
+              }
+            }}
+          />
           <div className="tr-inspector__id">{node.id}</div>
         </div>
         {onClose ? (

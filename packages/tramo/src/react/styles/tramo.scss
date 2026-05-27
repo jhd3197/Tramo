@@ -668,10 +668,43 @@
     gap: 8px;
     margin-bottom: 8px;
   }
-  &__titles { min-width: 0; }
+  &__titles {
+    min-width: 0;
+    flex: 1;
+  }
   &__name {
     font-size: 14px;
     font-weight: 600;
+  }
+  &__name-input {
+    width: 100%;
+    padding: 4px 6px;
+    margin: -4px -6px 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--tr-text);
+    transition: background 120ms, border-color 120ms, box-shadow 120ms;
+
+    &:hover:not(:focus) {
+      border-color: var(--tr-border);
+      background: var(--tr-surface-alt);
+    }
+
+    &:focus {
+      outline: none;
+      border-color: var(--tr-accent);
+      background: var(--tr-surface);
+      box-shadow: 0 0 0 2px var(--tr-accent-soft);
+    }
+
+    &::placeholder {
+      color: var(--tr-text-muted);
+      font-weight: 500;
+    }
   }
   &__id {
     font-family: var(--tr-mono);
