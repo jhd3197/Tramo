@@ -1,6 +1,5 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
-  BUILTIN_REGISTRY,
   applyPatches,
   emptyDoc,
   newEdgeId,
@@ -9,7 +8,7 @@ import {
   type WorkflowDoc,
 } from 'tramo-spec';
 import { Canvas, RightRail, useWorkflow } from 'tramo/react';
-import { BUILTIN_EXECUTOR_REGISTRY, run, type RunEvent } from 'tramo-runtime';
+import { BUILTIN_PACK, combinePacks, run, type RunEvent } from 'tramo-runtime';
 import { SAMPLE_DOC } from './sample.js';
 
 const STORAGE_KEY = 'tramo:demo:doc';
@@ -29,8 +28,13 @@ export function App() {
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [running, setRunning] = useState(false);
 
+  // Pack-based loading: extending the demo with a Slack/Postgres/etc.
+  // pack would mean adding it to this array. The editor and the runtime
+  // consume the two derived registries below.
+  const { nodes, executors } = useMemo(() => combinePacks([BUILTIN_PACK]), []);
+
   const workflow = useWorkflow({
-    registry: BUILTIN_REGISTRY,
+    registry: nodes,
     loadDoc: loadInitialDoc,
     saveDoc: (doc) => localStorage.setItem(STORAGE_KEY, JSON.stringify(doc)),
     key: resetCounter,
@@ -41,13 +45,13 @@ export function App() {
     setEvents([]);
     setRunning(true);
     try {
-      await run(workflow.doc, BUILTIN_EXECUTOR_REGISTRY, {
+      await run(workflow.doc, executors, {
         onEvent: (e) => setEvents((prev) => [...prev, e]),
       });
     } finally {
       setRunning(false);
     }
-  }, [workflow.doc]);
+  }, [workflow.doc, executors]);
 
   const reset = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
@@ -91,7 +95,7 @@ export function App() {
 
         <RightRail
           selection={workflow.selection}
-          registry={BUILTIN_REGISTRY}
+          registry={nodes}
           onApply={workflow.applyPatch}
           onClose={workflow.clearSelection}
           saveState={workflow.saveState}

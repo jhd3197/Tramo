@@ -15,4 +15,13 @@ export {
   BUILTIN_EXECUTOR_REGISTRY,
   createExecutorRegistry,
 } from './executors.js';
+export {
+  BUILTIN_PACK,
+  combinePacks,
+  defineNodePack,
+  type CombinedRegistries,
+  type DefineNodePackInput,
+  type NodePack,
+  type NodePackEntry,
+} from './pack.js';
 export * from './triggers/index.js';
