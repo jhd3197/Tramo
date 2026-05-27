@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "t",
+      "type": "manual-trigger",
+      "config": { "payload": "{\"x\":2}" }
+    },
+    {
+      "id": "m",
+      "type": "js-transform",
+      "config": { "expression": "return { y: input.x * 21 };" }
+    },
+    {
+      "id": "l",
+      "type": "log",
+      "config": { "prefix": "result" }
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source": "t", "target": "m" },
+    { "id": "e2", "source": "m", "target": "l" }
+  ],
+  "meta": { "name": "smoke" }
+}

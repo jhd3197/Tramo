@@ -9,13 +9,16 @@
     "demo"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build -w tramo-spec && npm run build -w tramo && npm run build -w tramo-runtime && npm run build -w tramo-runtime-node && npm run build -w tramo-demo",
+    "build:spec": "npm run build -w tramo-spec",
     "build:core": "npm run build -w tramo",
     "build:runtime": "npm run build -w tramo-runtime",
+    "build:cli": "npm run build -w tramo-runtime-node",
     "dev": "npm run dev --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "demo": "npm run dev -w tramo-demo",
-    "clean": "node -e \"const fs=require('fs');['packages/tramo/dist','packages/tramo-runtime/dist','demo/dist'].forEach(p=>fs.rmSync(p,{recursive:true,force:true}))\""
+    "cli": "node packages/tramo-runtime-node/dist/bin/tramo.js",
+    "clean": "node -e \"const fs=require('fs');['packages/tramo-spec/dist','packages/tramo/dist','packages/tramo-runtime/dist','packages/tramo-runtime-node/dist','demo/dist'].forEach(p=>fs.rmSync(p,{recursive:true,force:true}))\""
   },
   "author": "Juan Denis",
   "license": "MIT",

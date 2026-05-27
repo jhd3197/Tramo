@@ -27,8 +27,9 @@
 | **`tramo-spec`** | The wire contract. Doc model, typed `Patch` union, pure utilities (`applyPatch`, `topoSort`, …), and the canonical `BUILTIN_NODES` registry. Zero deps, runs anywhere. Bumping `SPEC_VERSION` is the only way to break the format. |
 | **`tramo`** | The editor. React components (`Canvas`, `NodeInspector`, `NodeMenu`, `RightRail`, `useWorkflow`) and `tramo/agent` JSON Schema + provider tool specs. Depends on `tramo-spec`. |
 | **`tramo-runtime`** | The reference TypeScript runtime — `run(doc, registry, options)`, `BUILTIN_EXECUTORS` matching the editor's built-in nodes, trigger drivers. Browser + Node + serverless. Depends on `tramo-spec` (no editor dep). |
+| **`tramo-runtime-node`** | CLI wrapper around `tramo-runtime`. Provides the `tramo` binary for running and validating workflow JSON files from a shell, CI job, or `cron` entry. |
 
-All three live in this workspace; npm workspaces resolves them locally during dev.
+All four live in this workspace; npm workspaces resolves them locally during dev.
 
 The split exists because the *spec* — what a tramo workflow is on the wire — outlives any one runtime. A Python runtime, a CLI wrapper, or a future hosted runner all consume the same `tramo-spec` package the browser editor emits.
 
@@ -85,6 +86,8 @@ doc = applyPatch(doc, {
 
 ## Running the workflow
 
+### From code
+
 ```ts
 import { run, BUILTIN_EXECUTOR_REGISTRY } from 'tramo-runtime';
 
@@ -97,6 +100,21 @@ if (result.ok) {
   console.log('Final results:', result.nodeResults);
 }
 ```
+
+### From the shell
+
+`tramo-runtime-node` ships a `tramo` binary that runs the same engine against a saved JSON file. The browser editor and the CLI consume the same `tramo-spec` — what you author in the canvas runs identically on a server.
+
+```bash
+# One-shot: run a workflow and stream per-node events
+npx tramo run workflow.json
+npx tramo run workflow.json --trigger '{"user":"juan"}'
+
+# Static check: spec version, known node types, edge endpoints
+npx tramo validate workflow.json
+```
+
+Exit codes: `0` on success, `1` on parse error, missing file, version mismatch, unknown node type, or any node failure. Drop-in suitable for `cron`, CI steps, GitHub Actions, etc.
 
 ## React editor
 
@@ -191,7 +209,6 @@ Register more via `createRegistry([...])` on the editor and `createExecutorRegis
 ### Portable runtimes
 A tramo doc is just JSON; the goal is for that JSON to run anywhere the user wants — not just in the browser tab where it was authored.
 
-- **`tramo-runtime-node`** — thin CLI wrapper around `tramo-runtime`. `tramo run workflow.json --trigger '<json>'` for cron jobs, CI tasks, "drop on a box and run it" deployments. *Next up.*
 - **`tramo-runtime-py`** — Python sibling of `tramo-runtime`. Same `tramo-spec` JSON, parallel executor implementations of every built-in node. Unlocks Lambda / Airflow / pandas-heavy users. *Under consideration; depends on demand.*
 - **`tramo-runtime-server`** — long-running host with webhook listener + cron scheduler, so `webhook-trigger` and `cron-trigger` work outside the browser. *Later.*
 
@@ -209,6 +226,7 @@ A tramo doc is just JSON; the goal is for that JSON to run anywhere the user wan
 
 ### Shipped
 - ✅ `tramo-spec` extracted as the standalone wire contract, with `SPEC_VERSION` enforced by the runtime on every run.
+- ✅ `tramo-runtime-node` — `tramo run` / `tramo validate` CLI for executing workflows outside the browser.
 - ✅ Own canvas engine — no XYFlow dependency; auto-layout from the DAG.
 - ✅ Multi-output branches (`if` node's `yes`/`no` anchors).
 - ✅ Per-node `runAfter` policy (`on-success` / `on-error` / `always`).
