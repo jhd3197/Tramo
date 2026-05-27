@@ -1,0 +1,93 @@
+{
+  "name": "tramo",
+  "version": "0.1.0",
+  "description": "Workflow-document-of-truth visual editor primitives (doc, patches, nodes) — the n8n/Zapier-style automation layer, made of small typed pieces.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./patches": {
+      "types": "./dist/patches.d.ts",
+      "import": "./dist/patches.js"
+    },
+    "./query": {
+      "types": "./dist/query.d.ts",
+      "import": "./dist/query.js"
+    },
+    "./nodes": {
+      "types": "./dist/nodes.d.ts",
+      "import": "./dist/nodes.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js"
+    },
+    "./agent": {
+      "types": "./dist/agent/index.d.ts",
+      "import": "./dist/agent/index.js"
+    },
+    "./styles.css": "./dist/styles.css"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@xyflow/react": "^12.0.0",
+    "@phosphor-icons/react": "^2.0.0",
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@xyflow/react": { "optional": true },
+    "react": { "optional": true },
+    "react-dom": { "optional": true },
+    "@phosphor-icons/react": { "optional": true }
+  },
+  "scripts": {
+    "build": "npm run build:ts && npm run build:css",
+    "build:ts": "tsc -p tsconfig.json",
+    "build:css": "sass src/react/styles/tramo.scss dist/styles.css --no-source-map --style=compressed",
+    "dev": "tsc -p tsconfig.json --watch",
+    "dev:css": "sass --watch src/react/styles/tramo.scss dist/styles.css",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "nanoid": "^5.0.0"
+  },
+  "devDependencies": {
+    "@xyflow/react": "^12.3.0",
+    "@phosphor-icons/react": "^2.1.10",
+    "@types/node": "^20.11.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "sass": "^1.99.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "keywords": [
+    "workflow",
+    "node-editor",
+    "automation",
+    "xyflow",
+    "react-flow",
+    "n8n",
+    "zapier",
+    "ai",
+    "agent"
+  ],
+  "author": "Juan Denis",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}

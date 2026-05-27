@@ -1,0 +1,25 @@
+{
+  "name": "tramo-workspace",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Workflow-document-of-truth visual editor + runtime — node-based automation primitives inspired by htmlstudio.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "demo"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "build:core": "npm run build -w tramo",
+    "build:runtime": "npm run build -w tramo-runtime",
+    "dev": "npm run dev --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "demo": "npm run dev -w tramo-demo",
+    "clean": "node -e \"const fs=require('fs');['packages/tramo/dist','packages/tramo-runtime/dist','demo/dist'].forEach(p=>fs.rmSync(p,{recursive:true,force:true}))\""
+  },
+  "author": "Juan Denis",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}
