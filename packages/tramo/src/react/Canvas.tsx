@@ -299,6 +299,7 @@ export function Canvas({
               height={nodeHeight}
               selected={n.id === selectedId}
               onClick={() => setSelection(n.id)}
+              applyPatch={applyPatch}
             />
           );
         })}

@@ -55,6 +55,7 @@ export async function run(
 
   /* 3. iterate. nodeResults[nid] = result emitted by that node. */
   const nodeResults: Record<string, NodeExecutionResult> = {};
+  const erroredNodes = new Set<string>();
   const skippedReason = new Map<string, string>();
 
   for (const nodeId of topo.order) {
@@ -73,39 +74,86 @@ export async function run(
       continue;
     }
 
-    /* assemble inputs from upstream results, honoring source/target port keys */
+    /* Apply runAfter policy to decide whether this node runs at all,
+     * before we assemble inputs. `on-success` (default) preserves the
+     * original propagation behavior; `on-error` flips it; `always`
+     * forces execution regardless. */
+    const runAfter = node.runAfter ?? 'on-success';
     const edges = incoming.get(nodeId) ?? [];
+    const upstreamError = edges.some((e) => erroredNodes.has(e.source));
+    const upstreamSkipped = edges.some(
+      (e) => skippedReason.has(e.source) && !erroredNodes.has(e.source),
+    );
+    const allSucceeded = edges.length === 0
+      ? true
+      : edges.every((e) => !skippedReason.has(e.source));
+
+    let shouldRun = true;
+    let policySkipReason: string | null = null;
+    if (runAfter === 'on-success') {
+      if (!allSucceeded) {
+        shouldRun = false;
+        const which = upstreamError
+          ? 'upstream errored'
+          : upstreamSkipped
+            ? 'upstream skipped'
+            : 'upstream not ready';
+        policySkipReason = `${which} (runAfter=on-success)`;
+      }
+    } else if (runAfter === 'on-error') {
+      if (!upstreamError) {
+        shouldRun = false;
+        policySkipReason = `no upstream errored (runAfter=on-error)`;
+      }
+    }
+    // 'always' → always run; inputs may be undefined for skipped predecessors.
+
+    if (!shouldRun) {
+      const reason = policySkipReason ?? 'policy';
+      emit({ type: 'node-skip', runId, nodeId, reason });
+      skippedReason.set(nodeId, reason);
+      continue;
+    }
+
+    /* assemble inputs from upstream results, honoring source/target port keys */
     const inputs: Record<string, unknown> = {};
-    let allUpstreamProduced = true;
-    let skipReason: string | null = null;
+    let allInputsAvailable = true;
+    let inputSkipReason: string | null = null;
 
     for (const edge of edges) {
-      if (skippedReason.has(edge.source)) {
-        allUpstreamProduced = false;
-        skipReason = `upstream ${edge.source} skipped (${skippedReason.get(edge.source)})`;
-        break;
-      }
-      const upstream = nodeResults[edge.source];
       const fromPort = edge.sourceHandle ?? 'out';
       const toPort = edge.targetHandle ?? 'in';
-
+      if (skippedReason.has(edge.source)) {
+        // For on-success this branch is unreachable; for on-error / always
+        // we keep going with the missing input as undefined.
+        if (runAfter === 'on-success') {
+          allInputsAvailable = false;
+          inputSkipReason = `upstream ${edge.source} skipped (${skippedReason.get(edge.source)})`;
+          break;
+        }
+        inputs[toPort] = undefined;
+        continue;
+      }
+      const upstream = nodeResults[edge.source];
       let value: unknown;
       if (upstream && typeof upstream === 'object' && fromPort in upstream) {
         value = (upstream as Record<string, unknown>)[fromPort];
       } else if (fromPort === 'out') {
         // bare-return convenience: a non-object result implicitly maps to `out`
         value = upstream;
-      } else {
+      } else if (runAfter === 'on-success') {
         // upstream produced a port map but not this one → branch not taken
-        allUpstreamProduced = false;
-        skipReason = `upstream ${edge.source} did not emit port "${fromPort}"`;
+        allInputsAvailable = false;
+        inputSkipReason = `upstream ${edge.source} did not emit port "${fromPort}"`;
         break;
+      } else {
+        value = undefined;
       }
       inputs[toPort] = value;
     }
 
-    if (!allUpstreamProduced) {
-      const reason = skipReason ?? 'inputs unavailable';
+    if (!allInputsAvailable) {
+      const reason = inputSkipReason ?? 'inputs unavailable';
       emit({ type: 'node-skip', runId, nodeId, reason });
       skippedReason.set(nodeId, reason);
       continue;
@@ -145,6 +193,7 @@ export async function run(
       const message = (err as Error).message || String(err);
       emit({ type: 'node-error', runId, nodeId, error: message, durationMs: Date.now() - start });
       skippedReason.set(nodeId, `error: ${message}`);
+      erroredNodes.add(nodeId);
       options.logger?.error(`[tramo] node ${nodeId} threw: ${message}`);
       // continue — downstream nodes will be marked skipped due to propagation
     }

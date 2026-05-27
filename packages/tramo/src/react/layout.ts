@@ -107,7 +107,7 @@ export function layoutWorkflow(
     }
   }
 
-  /* --- group by row, ordered by doc-insertion to keep layouts stable --- */
+  /* --- group by row --- */
   const rows = new Map<number, string[]>();
   for (const n of doc.nodes) {
     const r = row.get(n.id) ?? 0;
@@ -115,12 +115,53 @@ export function layoutWorkflow(
     rows.get(r)!.push(n.id);
   }
 
-  /* --- position: centre each row horizontally around x=0 --- */
-  const slotWidth = opts.nodeWidth + opts.columnGap;
+  /* --- assign columns top-down by averaging parent columns ---
+   * Each child node aims to land at the same column as the centre of
+   * its parents. This keeps fan-in joins centred under their parents
+   * and avoids the "leftmost slot wins by insertion order" feel.
+   * Order within a row by that target so the columns interleave
+   * naturally; then assign integer slots left-to-right.
+   */
+  const colByNode = new Map<string, number>();
   let maxRow = 0;
+  const sortedRows = Array.from(rows.entries()).sort(([a], [b]) => a - b);
+
+  for (const [r, ids] of sortedRows) {
+    if (r > maxRow) maxRow = r;
+    // Compute target column for each node in this row.
+    const targets = ids.map((id) => {
+      const parents = incoming.get(id) ?? [];
+      if (parents.length === 0) {
+        // Root row: just preserve original ordering as the target.
+        return ids.indexOf(id);
+      }
+      let sum = 0;
+      let n = 0;
+      for (const p of parents) {
+        const c = colByNode.get(p);
+        if (c !== undefined) {
+          sum += c;
+          n++;
+        }
+      }
+      return n > 0 ? sum / n : ids.indexOf(id);
+    });
+
+    // Sort ids by target; tie-break by original doc order (stable).
+    const indexed = ids.map((id, i) => ({ id, target: targets[i] ?? 0, i }));
+    indexed.sort((a, b) => a.target - b.target || a.i - b.i);
+
+    indexed.forEach((entry, col) => {
+      colByNode.set(entry.id, col);
+    });
+
+    rows.set(r, indexed.map((e) => e.id));
+  }
+
+  /* --- emit positions, centering each row around x=0 --- */
+  const slotWidth = opts.nodeWidth + opts.columnGap;
   let maxAbsX = 0;
   for (const [r, ids] of rows) {
-    if (r > maxRow) maxRow = r;
     const count = ids.length;
     const rowWidth = count * opts.nodeWidth + Math.max(0, count - 1) * opts.columnGap;
     const startX = -rowWidth / 2 + opts.nodeWidth / 2;

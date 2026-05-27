@@ -11,6 +11,7 @@ export { Edge, type EdgeProps } from './Edge.js';
 export { PlusButton, type PlusButtonProps } from './PlusButton.js';
 export { NodeIcon, type NodeIconProps } from './icons.js';
 export { renderTitleWithVars } from './renderTitle.js';
+export { NodeMenu, type NodeMenuProps } from './NodeMenu.js';
 export {
   layoutWorkflow,
   type LayoutOptions,

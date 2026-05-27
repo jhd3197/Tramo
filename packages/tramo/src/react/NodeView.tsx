@@ -14,7 +14,8 @@
 import { memo, type CSSProperties } from 'react';
 import { CATEGORY_META, NodeIcon } from './icons.js';
 import { renderTitleWithVars } from './renderTitle.js';
-import type { NodeDefinition, WorkflowNode } from '../types.js';
+import { NodeMenu } from './NodeMenu.js';
+import type { NodeDefinition, Patch, WorkflowNode } from '../types.js';
 
 export interface NodeViewProps {
   node: WorkflowNode;
@@ -25,6 +26,7 @@ export interface NodeViewProps {
   height: number;
   selected: boolean;
   onClick: () => void;
+  applyPatch: (patch: Patch) => void;
 }
 
 function NodeViewImpl({
@@ -36,6 +38,7 @@ function NodeViewImpl({
   height,
   selected,
   onClick,
+  applyPatch,
 }: NodeViewProps) {
   const label = node.label ?? definition?.name ?? node.type;
   const category = definition?.category;
@@ -66,26 +69,29 @@ function NodeViewImpl({
         </div>
       ) : null}
 
-      <button
-        type="button"
-        className="tr-node-v2__card"
-        onClick={(e) => {
-          e.stopPropagation();
-          onClick();
-        }}
-      >
-        <span className="tr-node-v2__icon" aria-hidden>
-          <NodeIcon definition={definition} size={20} />
-        </span>
-        <span className="tr-node-v2__titles">
-          <span className="tr-node-v2__name">{renderTitleWithVars(label)}</span>
-          {description ? (
-            <span className="tr-node-v2__desc">{renderTitleWithVars(description)}</span>
-          ) : (
-            <span className="tr-node-v2__type">{node.type}</span>
-          )}
-        </span>
-      </button>
+      <div className="tr-node-v2__card-wrap">
+        <button
+          type="button"
+          className="tr-node-v2__card"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClick();
+          }}
+        >
+          <span className="tr-node-v2__icon" aria-hidden>
+            <NodeIcon definition={definition} size={20} />
+          </span>
+          <span className="tr-node-v2__titles">
+            <span className="tr-node-v2__name">{renderTitleWithVars(label)}</span>
+            {description ? (
+              <span className="tr-node-v2__desc">{renderTitleWithVars(description)}</span>
+            ) : (
+              <span className="tr-node-v2__type">{node.type}</span>
+            )}
+          </span>
+        </button>
+        <NodeMenu node={node} applyPatch={applyPatch} />
+      </div>
     </div>
   );
 }

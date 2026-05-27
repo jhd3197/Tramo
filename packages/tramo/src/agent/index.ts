@@ -104,6 +104,27 @@ function patchSchema(nodeTypes: string[] | null): object {
       {
         type: 'object',
         additionalProperties: false,
+        required: ['kind', 'id', 'patch'],
+        properties: {
+          kind: { const: 'update-node' },
+          id: { type: 'string' },
+          patch: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              label: { type: 'string', description: 'Display label override.' },
+              runAfter: {
+                type: 'string',
+                enum: ['on-success', 'on-error', 'always'],
+                description: 'Execution policy relative to predecessors.',
+              },
+            },
+          },
+        },
+      },
+      {
+        type: 'object',
+        additionalProperties: false,
         required: ['kind', 'id'],
         properties: { kind: { const: 'remove-node' }, id: { type: 'string' } },
       },
@@ -287,6 +308,22 @@ export function validatePatch(value: unknown): Patch {
         config: requireObject(v.config, 'update-node-config.config'),
         ...(typeof v.replace === 'boolean' ? { replace: v.replace } : {}),
       };
+    case 'update-node': {
+      const inner = requireObject(v.patch, 'update-node.patch');
+      const out: Partial<Pick<WorkflowNode, 'label' | 'runAfter'>> = {};
+      if (typeof inner.label === 'string') out.label = inner.label;
+      if (typeof inner.runAfter === 'string') {
+        if (inner.runAfter !== 'on-success' && inner.runAfter !== 'on-error' && inner.runAfter !== 'always') {
+          throw new PatchValidationError(`update-node.patch.runAfter must be on-success|on-error|always`);
+        }
+        out.runAfter = inner.runAfter;
+      }
+      return {
+        kind: 'update-node',
+        id: requireString(v.id, 'update-node.id'),
+        patch: out,
+      };
+    }
     case 'remove-node':
       return { kind: 'remove-node', id: requireString(v.id, 'remove-node.id') };
     case 'add-edge':
@@ -315,12 +352,19 @@ export function parsePatch(
 function validateNode(v: unknown, field: string): WorkflowNode {
   if (!isObject(v)) throw new PatchValidationError(`${field} must be an object.`);
   const o = v as Record<string, unknown>;
-  return {
+  const out: WorkflowNode = {
     id: requireString(o.id, `${field}.id`),
     type: requireString(o.type, `${field}.type`),
     config: requireObject(o.config, `${field}.config`),
     ...(typeof o.label === 'string' ? { label: o.label } : {}),
   };
+  if (typeof o.runAfter === 'string') {
+    if (o.runAfter !== 'on-success' && o.runAfter !== 'on-error' && o.runAfter !== 'always') {
+      throw new PatchValidationError(`${field}.runAfter must be on-success|on-error|always`);
+    }
+    out.runAfter = o.runAfter;
+  }
+  return out;
 }
 
 function validateEdge(v: unknown, field: string) {
