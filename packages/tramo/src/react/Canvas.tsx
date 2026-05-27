@@ -89,7 +89,7 @@ export function Canvas({
     // (node, plus, popover) handles its own pointer events; capturing here
     // would steal the click before it reaches them.
     const target = e.target as HTMLElement;
-    if (target.closest('.tr-node-v2, .tr-plus, .tr-popover, .tr-popover-scrim')) return;
+    if (target.closest('.tr-node-v2, .tr-plus, .tr-popover, .tr-popover-scrim, .tr-empty')) return;
     if (e.button !== 0) return;
     clearSelection();
     panState.current = { startX: e.clientX, startY: e.clientY, vx: view.x, vy: view.y };
@@ -418,18 +418,8 @@ export function Canvas({
             label={a.portLabel ? `Add next step on ${a.portLabel}` : 'Add next step'}
           />
         ))}
-        {plusAnchors.first && (
-          <PlusButton
-            x={plusAnchors.first.x}
-            y={plusAnchors.first.y}
-            onClick={() => openInsertion({
-              mode: 'first',
-              screenX: plusAnchors.first!.x,
-              screenY: plusAnchors.first!.y,
-            })}
-            label="Add the first step"
-          />
-        )}
+        {/* The empty-state EmptyPrompt below owns the first-insertion CTA,
+            so no world-coord first + is rendered. */}
       </div>
 
       {insertion && (
@@ -441,6 +431,34 @@ export function Canvas({
           onClose={closeInsertion}
         />
       )}
+
+      {doc.nodes.length === 0 ? (
+        <EmptyPrompt
+          onStart={() =>
+            openInsertion({ mode: 'first', screenX: 0, screenY: 60 })
+          }
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function EmptyPrompt({ onStart }: { onStart: () => void }) {
+  return (
+    <div className="tr-empty">
+      <div className="tr-empty__card">
+        <div className="tr-empty__icon" aria-hidden>
+          {/* lucide Zap — inline to avoid an extra import */}
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />
+          </svg>
+        </div>
+        <div className="tr-empty__title">Start your workflow</div>
+        <div className="tr-empty__sub">Pick a trigger to decide when this flow fires.</div>
+        <button type="button" className="tr-empty__cta" onClick={onStart}>
+          + Add a trigger
+        </button>
+      </div>
     </div>
   );
 }
@@ -463,8 +481,21 @@ function InsertionPopover({
   const left = insertion.screenX * view.zoom + view.x;
   const top = insertion.screenY * view.zoom + view.y + 18;
 
+  // Triggers may only sit at the top of a workflow. When the user is
+  // inserting the FIRST step, the picker shows only triggers; for any
+  // downstream insertion, triggers are hidden. Falls back to the full
+  // registry as a safety net if the registry has zero matches.
+  const wantsTriggerOnly = insertion.mode === 'first';
   const grouped = registry.byCategory();
-  const categories = Object.keys(grouped).sort();
+  const filtered: Record<string, NodeDefinition[]> = {};
+  for (const [cat, defs] of Object.entries(grouped)) {
+    const keep = wantsTriggerOnly
+      ? cat === 'trigger'
+      : cat !== 'trigger';
+    if (keep && defs.length > 0) filtered[cat] = defs;
+  }
+  const categories = Object.keys(filtered).sort();
+  const headerText = wantsTriggerOnly ? 'Pick a trigger' : 'Add a step';
 
   // Stop wheel/pointer events from bubbling up to the canvas wrapper, which
   // would otherwise pan or zoom while the user is interacting with the popover.
@@ -481,12 +512,12 @@ function InsertionPopover({
         onPointerMove={stop}
         onPointerUp={stop}
       >
-        <div className="tr-popover__head">Add a step</div>
+        <div className="tr-popover__head">{headerText}</div>
         <div className="tr-popover__body" onWheel={stop}>
           {categories.map((cat) => (
             <section key={cat} className="tr-popover__group">
               <div className="tr-popover__group-head">{cat}</div>
-              {grouped[cat]!.map((def) => (
+              {filtered[cat]!.map((def) => (
                 <button
                   key={def.id}
                   type="button"
