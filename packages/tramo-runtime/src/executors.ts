@@ -158,7 +158,8 @@ const ifNode: NodeExecutor = {
       config: Record<string, unknown>,
     ) => unknown;
     const passed = Boolean(fn(ctx.inputs.in, ctx.config));
-    return passed ? { true: ctx.inputs.in } : { false: ctx.inputs.in };
+    ctx.log.info(passed ? 'condition: yes' : 'condition: no');
+    return passed ? { yes: ctx.inputs.in } : { no: ctx.inputs.in };
   },
 };
 

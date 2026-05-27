@@ -212,13 +212,13 @@ export const BUILTIN_NODES: NodeDefinition[] = [
     id: 'if',
     name: 'If',
     category: 'logic',
-    description: 'Route the input to "true" or "false" based on a JS condition.',
+    description: 'Route the input to one of two branches based on a JS condition.',
     icon: 'GitBranch',
     color: COLORS.logic,
     inputs: [{ key: 'in', label: 'Input', type: 'any' }],
     outputs: [
-      { key: 'true', label: 'True', type: 'any' },
-      { key: 'false', label: 'False', type: 'any' },
+      { key: 'yes', label: 'Yes', type: 'any' },
+      { key: 'no', label: 'No', type: 'any' },
     ],
     fields: [
       {
@@ -227,7 +227,7 @@ export const BUILTIN_NODES: NodeDefinition[] = [
         language: 'javascript',
         label: 'Condition',
         default: 'return Boolean(input);',
-        help: 'A function body returning truthy/falsy. Available bindings: `input`.',
+        help: 'A JS function body returning truthy/falsy. `input` is available; return truthy to take the Yes branch.',
       },
     ],
   },

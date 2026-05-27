@@ -31,7 +31,7 @@ import { Edge } from './Edge.js';
 import { NodeView } from './NodeView.js';
 import { NodeIcon } from './icons.js';
 import { PlusButton } from './PlusButton.js';
-import { layoutWorkflow, type NodeLayout } from './layout.js';
+import { layoutWorkflow, outputOffset, type NodeLayout } from './layout.js';
 import { newNodeId, newEdgeId } from '../ids.js';
 import type { NodeDefinition } from '../types.js';
 import type { WorkflowHandle } from './useWorkflow.js';
@@ -58,6 +58,11 @@ interface InsertionTarget {
   targetId?: string;
   /** The edge to split when mode === 'between'. */
   edgeId?: string;
+  /** Output port key on the source — preserved on the new edge so
+   *  inserting on the 'yes' branch of an If stays on 'yes'. */
+  sourceHandle?: string;
+  /** Input port key on the target — preserved on the new edge. */
+  targetHandle?: string;
 }
 
 const NODE_WIDTH_DEFAULT = 300;
@@ -172,21 +177,39 @@ export function Canvas({
 
       if (insertion.mode === 'between' && insertion.edgeId && insertion.sourceId && insertion.targetId) {
         // Split the edge: remove old, add node, add source→new + new→target.
+        // The first segment inherits the original edge's sourceHandle so
+        // an insert on If/Yes stays on the Yes branch; the second segment
+        // inherits the original targetHandle.
         applyPatch({ kind: 'remove-edge', id: insertion.edgeId });
         applyPatch({ kind: 'add-node', node: { id: newId, type: def.id, config } });
         applyPatch({
           kind: 'add-edge',
-          edge: { id: newEdgeId(), source: insertion.sourceId, target: newId },
+          edge: {
+            id: newEdgeId(),
+            source: insertion.sourceId,
+            target: newId,
+            ...(insertion.sourceHandle ? { sourceHandle: insertion.sourceHandle } : {}),
+          },
         });
         applyPatch({
           kind: 'add-edge',
-          edge: { id: newEdgeId(), source: newId, target: insertion.targetId },
+          edge: {
+            id: newEdgeId(),
+            source: newId,
+            target: insertion.targetId,
+            ...(insertion.targetHandle ? { targetHandle: insertion.targetHandle } : {}),
+          },
         });
       } else if (insertion.mode === 'after-leaf' && insertion.sourceId) {
         applyPatch({ kind: 'add-node', node: { id: newId, type: def.id, config } });
         applyPatch({
           kind: 'add-edge',
-          edge: { id: newEdgeId(), source: insertion.sourceId, target: newId },
+          edge: {
+            id: newEdgeId(),
+            source: insertion.sourceId,
+            target: newId,
+            ...(insertion.sourceHandle ? { sourceHandle: insertion.sourceHandle } : {}),
+          },
         });
       } else {
         // First node — no edges yet.
@@ -200,11 +223,34 @@ export function Canvas({
 
   /* ---------- derive plus-button anchor points ---------- */
   const plusAnchors = useMemo(() => {
-    if (!doc || !layout) return { betweens: [] as Array<{ key: string; x: number; y: number; edgeId: string; sourceId: string; targetId: string }>,
-      leaves: [] as Array<{ key: string; x: number; y: number; sourceId: string }>,
-      first: null as null | { x: number; y: number } };
+    type Between = {
+      key: string;
+      x: number;
+      y: number;
+      edgeId: string;
+      sourceId: string;
+      targetId: string;
+      sourceHandle?: string;
+      targetHandle?: string;
+    };
+    type Leaf = {
+      key: string;
+      x: number;
+      y: number;
+      sourceId: string;
+      sourceHandle?: string;
+      portLabel?: string;
+    };
 
-    const betweens = doc.edges
+    if (!doc || !layout) {
+      return {
+        betweens: [] as Between[],
+        leaves: [] as Leaf[],
+        first: null as null | { x: number; y: number },
+      };
+    }
+
+    const betweens: Between[] = doc.edges
       .map((e) => {
         const s = layout.positions.get(e.source);
         const t = layout.positions.get(e.target);
@@ -220,31 +266,64 @@ export function Canvas({
           edgeId: e.id,
           sourceId: e.source,
           targetId: e.target,
-        };
+          ...(e.sourceHandle ? { sourceHandle: e.sourceHandle } : {}),
+          ...(e.targetHandle ? { targetHandle: e.targetHandle } : {}),
+        } as Between;
       })
-      .filter(Boolean) as Array<{ key: string; x: number; y: number; edgeId: string; sourceId: string; targetId: string }>;
+      .filter(Boolean) as Between[];
 
-    const outgoingCount = new Map<string, number>();
+    /* Build "edges grouped by (source, sourceHandle)" so we know which
+     * outputs of a multi-output node already have a connection. Every
+     * un-connected output gets its own trailing + so users can extend
+     * each branch independently. */
+    const connectedOuts = new Map<string, Set<string>>();
     for (const e of doc.edges) {
-      outgoingCount.set(e.source, (outgoingCount.get(e.source) ?? 0) + 1);
+      const set = connectedOuts.get(e.source) ?? new Set<string>();
+      set.add(e.sourceHandle ?? '__default__');
+      connectedOuts.set(e.source, set);
     }
-    const leaves: Array<{ key: string; x: number; y: number; sourceId: string }> = [];
+
+    const leaves: Leaf[] = [];
     for (const n of doc.nodes) {
-      if ((outgoingCount.get(n.id) ?? 0) === 0) {
-        const p = layout.positions.get(n.id);
-        if (!p) continue;
-        leaves.push({
-          key: `leaf-${n.id}`,
-          x: p.x,
-          y: p.y + nodeHeight + PLUS_OFFSET,
-          sourceId: n.id,
-        });
+      const def = registry.get(n.type);
+      const outs = def?.outputs ?? [];
+      const connected = connectedOuts.get(n.id) ?? new Set<string>();
+      const p = layout.positions.get(n.id);
+      if (!p) continue;
+
+      if (outs.length <= 1) {
+        // Single-output (or undefined-def) — any outgoing edge counts as
+        // connected, regardless of whether its sourceHandle was set
+        // explicitly or left default.
+        if (connected.size === 0) {
+          leaves.push({
+            key: `leaf-${n.id}`,
+            x: p.x,
+            y: p.y + nodeHeight + PLUS_OFFSET,
+            sourceId: n.id,
+          });
+        }
+      } else {
+        // Multi-output — one + per unconnected output, positioned under
+        // that output's anchor.
+        for (const out of outs) {
+          if (connected.has(out.key)) continue;
+          const dx = outputOffset(def, out.key, nodeWidth);
+          leaves.push({
+            key: `leaf-${n.id}-${out.key}`,
+            x: p.x + dx,
+            y: p.y + nodeHeight + PLUS_OFFSET,
+            sourceId: n.id,
+            sourceHandle: out.key,
+            portLabel: out.label,
+          });
+        }
       }
     }
 
     const first = doc.nodes.length === 0 ? { x: 0, y: 60 } : null;
     return { betweens, leaves, first };
-  }, [doc, layout, nodeHeight]);
+  }, [doc, layout, nodeHeight, nodeWidth, registry]);
 
   /* ---------- render ---------- */
   if (!doc || !layout) {
@@ -272,11 +351,13 @@ export function Canvas({
             const s = layout.positions.get(e.source);
             const t = layout.positions.get(e.target);
             if (!s || !t) return null;
+            const srcDef = registry.get(doc.nodes.find((n) => n.id === e.source)?.type ?? '');
+            const dx = outputOffset(srcDef, e.sourceHandle, nodeWidth);
             return (
               <Edge
                 key={e.id}
                 id={e.id}
-                x1={s.x}
+                x1={s.x + dx}
                 y1={s.y + nodeHeight}
                 x2={t.x}
                 y2={t.y}
@@ -316,6 +397,8 @@ export function Canvas({
               edgeId: a.edgeId,
               sourceId: a.sourceId,
               targetId: a.targetId,
+              ...(a.sourceHandle ? { sourceHandle: a.sourceHandle } : {}),
+              ...(a.targetHandle ? { targetHandle: a.targetHandle } : {}),
             })}
             label="Insert step here"
           />
@@ -330,8 +413,9 @@ export function Canvas({
               screenX: a.x,
               screenY: a.y,
               sourceId: a.sourceId,
+              ...(a.sourceHandle ? { sourceHandle: a.sourceHandle } : {}),
             })}
-            label="Add next step"
+            label={a.portLabel ? `Add next step on ${a.portLabel}` : 'Add next step'}
           />
         ))}
         {plusAnchors.first && (

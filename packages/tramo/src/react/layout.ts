@@ -15,7 +15,7 @@
  * order to avoid an infinite loop (caller can detect via topoSort).
  */
 
-import type { WorkflowDoc } from '../types.js';
+import type { NodeDefinition, WorkflowDoc } from '../types.js';
 
 export interface LayoutOptions {
   /** Width allotted per node slot, used for horizontal centering. */
@@ -40,6 +40,32 @@ export interface LayoutResult {
   positions: Map<string, NodeLayout>;
   /** Bounding box of all positioned nodes (useful for canvas sizing). */
   bounds: { width: number; height: number };
+}
+
+/**
+ * Compute the x-offset (relative to the node's centre) of one of its
+ * output anchors. Nodes with a single output anchor at the centre
+ * (offset 0); multi-output nodes distribute their ports evenly across
+ * the bottom of the card.
+ *
+ *   - 1 output:      [           o           ]   offset = 0
+ *   - 2 outputs:     [     o           o     ]   offsets = ±nodeWidth/6
+ *   - 3 outputs:     [   o      o      o     ]   offsets = ±nodeWidth/4, 0
+ */
+export function outputOffset(
+  def: NodeDefinition | undefined,
+  sourceHandle: string | undefined,
+  nodeWidth: number,
+): number {
+  const outs = def?.outputs ?? [];
+  if (outs.length <= 1) return 0;
+  // Default to the first output when no handle is named on the edge.
+  const handle = sourceHandle ?? outs[0]!.key;
+  const idx = outs.findIndex((o) => o.key === handle);
+  if (idx < 0) return 0;
+  const n = outs.length;
+  const spacing = nodeWidth / (n + 1);
+  return (idx + 1) * spacing - nodeWidth / 2;
 }
 
 const DEFAULTS: Required<LayoutOptions> = {

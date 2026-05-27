@@ -176,6 +176,31 @@
     font-size: 11px;
     color: var(--tr-text-muted);
   }
+
+  &__ports {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -10px;
+    height: 0;
+    pointer-events: none;
+  }
+
+  &__port {
+    position: absolute;
+    top: 0;
+    transform: translate(-50%, -50%);
+    padding: 2px 8px;
+    background: var(--tr-surface);
+    border: 1px solid var(--tr-border-strong);
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--tr-text-muted);
+    white-space: nowrap;
+    user-select: none;
+  }
 }
 
 /* ---------- per-node ⋮ menu ---------- */

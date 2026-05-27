@@ -13,6 +13,7 @@
 
 import { memo, type CSSProperties } from 'react';
 import { CATEGORY_META, NodeIcon } from './icons.js';
+import { outputOffset } from './layout.js';
 import { renderTitleWithVars } from './renderTitle.js';
 import { NodeMenu } from './NodeMenu.js';
 import type { NodeDefinition, Patch, WorkflowNode } from '../types.js';
@@ -92,6 +93,24 @@ function NodeViewImpl({
         </button>
         <NodeMenu node={node} applyPatch={applyPatch} />
       </div>
+
+      {definition && definition.outputs.length > 1 ? (
+        <div className="tr-node-v2__ports" aria-hidden>
+          {definition.outputs.map((port) => {
+            const dx = outputOffset(definition, port.key, width);
+            return (
+              <span
+                key={port.key}
+                className="tr-node-v2__port"
+                style={{ left: `calc(50% + ${dx}px)` }}
+                data-port={port.key}
+              >
+                {port.label}
+              </span>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }
