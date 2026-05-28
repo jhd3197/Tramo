@@ -222,12 +222,20 @@ export const BUILTIN_NODES: NodeDefinition[] = [
     ],
     fields: [
       {
+        key: 'rules',
+        type: 'rule',
+        label: 'Conditions',
+        help: 'Build a rule tree. Empty = always Yes. Combine rows with AND/OR; group for precedence.',
+        optional: true,
+      },
+      {
         key: 'condition',
         type: 'code',
         language: 'javascript',
-        label: 'Condition',
-        default: 'return Boolean(input);',
-        help: 'A JS function body returning truthy/falsy. `input` is available; return truthy to take the Yes branch.',
+        label: 'Or a JS expression',
+        default: 'input',
+        optional: true,
+        help: 'Used only when the rule tree above is empty. Evaluated against `input`, `vars`, `config`.',
       },
     ],
   },

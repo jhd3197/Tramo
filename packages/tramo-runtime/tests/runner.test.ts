@@ -24,7 +24,7 @@ describe('run()', () => {
   it('routes through the "true" port of an `if` node and skips the false branch', async () => {
     const doc = applyPatches(emptyDoc(), [
       { kind: 'add-node', node: node('t', 'manual-trigger', { payload: '{"go":true}' }) },
-      { kind: 'add-node', node: node('cond', 'if', { condition: 'return input.go === true;' }) },
+      { kind: 'add-node', node: node('cond', 'if', { condition: 'input.go === true' }) },
       { kind: 'add-node', node: node('yes', 'log', { prefix: 'YES' }) },
       { kind: 'add-node', node: node('no', 'log', { prefix: 'NO' }) },
       { kind: 'add-edge', edge: { id: 'e1', source: 't', target: 'cond' } },
@@ -40,6 +40,72 @@ describe('run()', () => {
     // The "no" branch must be skipped, not errored.
     const skip = result.events.find((e) => e.type === 'node-skip' && e.nodeId === 'no');
     expect(skip).toBeDefined();
+  });
+
+  it('accepts a legacy function-body condition (pre-0.2 back-compat)', async () => {
+    const doc = applyPatches(emptyDoc(), [
+      { kind: 'add-node', node: node('t', 'manual-trigger', { payload: '{"go":true}' }) },
+      { kind: 'add-node', node: node('cond', 'if', { condition: 'return input.go === true;' }) },
+      { kind: 'add-node', node: node('yes', 'log', { prefix: 'YES' }) },
+      { kind: 'add-edge', edge: { id: 'e1', source: 't', target: 'cond' } },
+      { kind: 'add-edge', edge: { id: 'e2', source: 'cond', target: 'yes', sourceHandle: 'yes' } },
+    ]).doc;
+
+    const result = await run(doc, BUILTIN_EXECUTOR_REGISTRY);
+    expect(result.ok).toBe(true);
+    expect(result.nodeResults.yes).toBeDefined();
+  });
+
+  it('evaluates a rule tree (AND of two conditions) on the if node', async () => {
+    const doc = applyPatches(emptyDoc(), [
+      { kind: 'add-node', node: node('t', 'manual-trigger', { payload: '{"age":21,"country":"US"}' }) },
+      {
+        kind: 'add-node',
+        node: node('cond', 'if', {
+          rules: {
+            kind: 'group',
+            combinator: 'and',
+            rules: [
+              { kind: 'condition', left: 'input.age', op: '>=', right: 18 },
+              { kind: 'condition', left: 'input.country', op: 'in', right: ['US', 'CA'] },
+            ],
+          },
+        }),
+      },
+      { kind: 'add-node', node: node('yes', 'log', { prefix: 'YES' }) },
+      { kind: 'add-edge', edge: { id: 'e1', source: 't', target: 'cond' } },
+      { kind: 'add-edge', edge: { id: 'e2', source: 'cond', target: 'yes', sourceHandle: 'yes' } },
+    ]).doc;
+
+    const result = await run(doc, BUILTIN_EXECUTOR_REGISTRY);
+    expect(result.ok).toBe(true);
+    expect(result.nodeResults.yes).toBeDefined();
+  });
+
+  it('rule tree: OR group, regex match, and per-row negation', async () => {
+    const doc = applyPatches(emptyDoc(), [
+      { kind: 'add-node', node: node('t', 'manual-trigger', { payload: '{"email":"x@y.org","plan":"free"}' }) },
+      {
+        kind: 'add-node',
+        node: node('cond', 'if', {
+          rules: {
+            kind: 'group',
+            combinator: 'and',
+            rules: [
+              { kind: 'condition', left: 'input.email', op: 'matches', right: '@y\\.(com|org)$' },
+              { kind: 'condition', left: 'input.plan', op: '=', right: 'pro', not: true },
+            ],
+          },
+        }),
+      },
+      { kind: 'add-node', node: node('yes', 'log', { prefix: 'YES' }) },
+      { kind: 'add-edge', edge: { id: 'e1', source: 't', target: 'cond' } },
+      { kind: 'add-edge', edge: { id: 'e2', source: 'cond', target: 'yes', sourceHandle: 'yes' } },
+    ]).doc;
+
+    const result = await run(doc, BUILTIN_EXECUTOR_REGISTRY);
+    expect(result.ok).toBe(true);
+    expect(result.nodeResults.yes).toBeDefined();
   });
 
   it('emits node-error and continues for downstream skips when a node throws', async () => {

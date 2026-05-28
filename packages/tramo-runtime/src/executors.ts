@@ -7,6 +7,7 @@
  * Node-only deps.
  */
 
+import { evaluateRuleGroup, isRuleGroup } from 'tramo-spec';
 import type {
   ExecutionContext,
   ExecutorRegistry,
@@ -152,12 +153,31 @@ const template: NodeExecutor = {
 const ifNode: NodeExecutor = {
   id: 'if',
   execute: (ctx) => {
-    const expression = String(ctx.config.condition ?? 'return Boolean(input);');
-    const fn = new Function('input', 'config', expression) as (
-      input: unknown,
-      config: Record<string, unknown>,
-    ) => unknown;
-    const passed = Boolean(fn(ctx.inputs.in, ctx.config));
+    const env = { input: ctx.inputs.in, vars: ctx.vars, config: ctx.config };
+
+    // Rule tree wins when present and non-empty; otherwise fall back to
+    // the JS expression. This lets visual edits and legacy code coexist.
+    const rules = ctx.config.rules;
+    let passed: boolean;
+    if (isRuleGroup(rules) && rules.rules.length > 0) {
+      passed = evaluateRuleGroup(rules, env);
+    } else {
+      const expression = String(ctx.config.condition ?? 'input');
+      type CondFn = (
+        input: unknown,
+        vars: Record<string, unknown>,
+        config: Record<string, unknown>,
+      ) => unknown;
+      let fn: CondFn;
+      try {
+        fn = new Function('input', 'vars', 'config', `return (${expression});`) as CondFn;
+      } catch {
+        // Back-compat: pre-0.2 graphs stored function bodies (`return Boolean(input);`).
+        fn = new Function('input', 'vars', 'config', expression) as CondFn;
+      }
+      passed = Boolean(fn(ctx.inputs.in, ctx.vars, ctx.config));
+    }
+
     ctx.log.info(passed ? 'condition: yes' : 'condition: no');
     return passed ? { yes: ctx.inputs.in } : { no: ctx.inputs.in };
   },

@@ -28,6 +28,7 @@ import type {
 import type { SaveState } from './useWorkflow.js';
 import { getVarSuggestions, type VarSuggestion } from './varSuggestions.js';
 import { VarPicker } from './VarPicker.js';
+import { RuleField } from './RuleField.js';
 
 export interface NodeInspectorProps {
   selection: WorkflowNode | null;
@@ -257,6 +258,15 @@ function FieldRow({
             onChange={(e) => onLocalChange(e.target.value)}
             onBlur={(e) => onCommit(e.target.value)}
           />
+          {help}
+        </div>
+      );
+
+    case 'rule':
+      return (
+        <div className="tr-field">
+          {label}
+          <RuleField value={value} onCommit={(v) => onCommit(v)} />
           {help}
         </div>
       );

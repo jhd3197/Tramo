@@ -124,7 +124,50 @@ export type NodeFieldType =
   | 'select'
   | 'json'
   | 'code'
+  | 'rule'
   | 'secret';
+
+/* ---------------------------------------------------------------------- */
+/* Rule tree — structured condition value used by `rule` fields            */
+/* ---------------------------------------------------------------------- */
+
+export type RuleCombinator = 'and' | 'or';
+
+export type RuleOp =
+  | '=' | '!='
+  | '>' | '>=' | '<' | '<='
+  | 'contains' | 'not-contains'
+  | 'starts-with' | 'ends-with'
+  | 'matches'
+  | 'in' | 'not-in'
+  | 'is-empty' | 'is-not-empty'
+  | 'exists' | 'not-exists'
+  | 'is-truthy' | 'is-falsy';
+
+export interface RuleCondition {
+  kind: 'condition';
+  /** JS expression evaluated against `input`, `vars`, `config`. */
+  left: string;
+  op: RuleOp;
+  /**
+   * Right-hand side. By default treated as a literal value. If
+   * `rightIsExpr` is true, evaluated as a JS expression instead
+   * (e.g. `vars.threshold`). Unary ops ignore this field.
+   */
+  right?: unknown;
+  rightIsExpr?: boolean;
+  /** Negate the row's result. */
+  not?: boolean;
+}
+
+export interface RuleGroup {
+  kind: 'group';
+  combinator: RuleCombinator;
+  rules: RuleNode[];
+  not?: boolean;
+}
+
+export type RuleNode = RuleCondition | RuleGroup;
 
 export interface NodeFieldOption {
   label: string;

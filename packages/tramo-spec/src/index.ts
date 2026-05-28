@@ -24,6 +24,14 @@ export {
 export {
   BUILTIN_NODES,
   BUILTIN_REGISTRY,
+  BUILTIN_INTEGRATIONS,
+  BUILTIN_INTEGRATION_NODES,
   createRegistry,
   type NodeRegistry,
 } from './nodes.js';
+export {
+  emptyRuleGroup,
+  evaluateRuleGroup,
+  isRuleGroup,
+  type RuleEvalEnv,
+} from './rules.js';
