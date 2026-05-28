@@ -1,4 +1,4 @@
-import type { Patch, PatchResult, WorkflowDoc, WorkflowEdge, WorkflowNode } from './types.js';
+import type { MCPServerRef, Patch, PatchResult, WorkflowDoc, WorkflowEdge, WorkflowNode } from './types.js';
 
 /**
  * Apply one Patch to a WorkflowDoc. Pure — returns a new doc, never
@@ -93,6 +93,30 @@ export function applyPatch(doc: WorkflowDoc, patch: Patch): PatchResult {
         doc: { ...doc, edges: doc.edges.filter((e) => e.id !== patch.id) },
       };
     }
+
+    case 'upsert-mcp-server': {
+      const existing = doc.meta.mcpServers ?? [];
+      const idx = existing.findIndex((s) => s.id === patch.server.id);
+      const next = idx >= 0
+        ? existing.map((s, i) => (i === idx ? cloneMcpServer(patch.server) : s))
+        : [...existing, cloneMcpServer(patch.server)];
+      return {
+        ok: true,
+        doc: { ...doc, meta: { ...doc.meta, mcpServers: next } },
+      };
+    }
+
+    case 'remove-mcp-server': {
+      const existing = doc.meta.mcpServers ?? [];
+      if (!existing.some((s) => s.id === patch.id)) {
+        return { ok: false, doc, error: `MCP server not found: ${patch.id}` };
+      }
+      const next = existing.filter((s) => s.id !== patch.id);
+      return {
+        ok: true,
+        doc: { ...doc, meta: { ...doc.meta, mcpServers: next } },
+      };
+    }
   }
 }
 
@@ -125,7 +149,27 @@ function cloneDoc(doc: WorkflowDoc): WorkflowDoc {
     version: doc.version,
     nodes: doc.nodes.map(cloneNode),
     edges: doc.edges.map(cloneEdge),
-    meta: { ...doc.meta, tags: doc.meta.tags ? [...doc.meta.tags] : undefined },
+    meta: {
+      ...doc.meta,
+      tags: doc.meta.tags ? [...doc.meta.tags] : undefined,
+      mcpServers: doc.meta.mcpServers ? doc.meta.mcpServers.map(cloneMcpServer) : undefined,
+    },
+  };
+}
+
+function cloneMcpServer(s: MCPServerRef): MCPServerRef {
+  return {
+    id: s.id,
+    name: s.name,
+    url: s.url,
+    tools: s.tools.map((t) => ({
+      name: t.name,
+      ...(t.description !== undefined ? { description: t.description } : {}),
+      ...(t.inputSchema !== undefined ? { inputSchema: t.inputSchema } : {}),
+    })),
+    ...(s.authToken !== undefined ? { authToken: s.authToken } : {}),
+    ...(s.description !== undefined ? { description: s.description } : {}),
+    ...(s.fetchedAt !== undefined ? { fetchedAt: s.fetchedAt } : {}),
   };
 }
 

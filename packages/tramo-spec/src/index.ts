@@ -31,6 +31,10 @@ export {
   emptySwitchCase,
   newSwitchCaseKey,
   emptyFlowParam,
+  mcpServerToIntegration,
+  mcpServerToNodeDefs,
+  withMcpServers,
+  MCP_NODE_ID_PREFIX,
   type NodeRegistry,
 } from './nodes.js';
 export {

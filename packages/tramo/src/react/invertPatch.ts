@@ -63,6 +63,20 @@ export function invertPatch(prevDoc: WorkflowDoc, patch: Patch): Patch[] {
 
     case 'set-full-doc':
       return [{ kind: 'set-full-doc', doc: cloneDoc(prevDoc) }];
+
+    case 'upsert-mcp-server': {
+      const existing = prevDoc.meta.mcpServers?.find((s) => s.id === patch.server.id);
+      if (existing) {
+        return [{ kind: 'upsert-mcp-server', server: { ...existing, tools: existing.tools.map((t) => ({ ...t })) } }];
+      }
+      return [{ kind: 'remove-mcp-server', id: patch.server.id }];
+    }
+
+    case 'remove-mcp-server': {
+      const existing = prevDoc.meta.mcpServers?.find((s) => s.id === patch.id);
+      if (!existing) return [];
+      return [{ kind: 'upsert-mcp-server', server: { ...existing, tools: existing.tools.map((t) => ({ ...t })) } }];
+    }
   }
 }
 
@@ -71,6 +85,10 @@ function cloneDoc(doc: WorkflowDoc): WorkflowDoc {
     version: doc.version,
     nodes: doc.nodes.map((n) => ({ ...n, config: { ...n.config } })),
     edges: doc.edges.map((e) => ({ ...e })),
-    meta: { ...doc.meta, tags: doc.meta.tags ? [...doc.meta.tags] : undefined },
+    meta: {
+      ...doc.meta,
+      tags: doc.meta.tags ? [...doc.meta.tags] : undefined,
+      mcpServers: doc.meta.mcpServers ? doc.meta.mcpServers.map((s) => ({ ...s, tools: s.tools.map((t) => ({ ...t })) })) : undefined,
+    },
   };
 }

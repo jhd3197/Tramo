@@ -33,7 +33,8 @@ import { CATEGORY_META, IntegrationIcon, NodeIcon } from './icons.js';
 import { ArrowLeft, Search } from 'lucide-react';
 import { PlusButton } from './PlusButton.js';
 import { layoutWorkflow, outputOffset, type NodeLayout } from './layout.js';
-import { newNodeId, newEdgeId, resolveOutputs, type IntegrationDefinition, type NodeCategory, type NodeDefinition } from 'tramo-spec';
+import { newNodeId, newEdgeId, resolveOutputs, withMcpServers, type IntegrationDefinition, type MCPServerRef, type NodeCategory, type NodeDefinition } from 'tramo-spec';
+import { MCPImportModal } from './MCPImportModal.js';
 import type { WorkflowHandle } from './useWorkflow.js';
 
 export interface CanvasProps {
@@ -91,7 +92,34 @@ export function Canvas({
   runResults,
   runStatus,
 }: CanvasProps) {
-  const { doc, selectedId, setSelection, clearSelection, registry, applyPatch } = workflow;
+  const { doc, selectedId, setSelection, clearSelection, registry: baseRegistry, applyPatch } = workflow;
+
+  /* ---------- MCP servers overlay ----------
+   *
+   * Synthesise tiles + per-tool NodeDefinitions from anything the user has
+   * imported into this workflow. The runtime never reads this overlay —
+   * picked nodes get serverUrl + toolName baked into their config and
+   * dispatch via the `mcp-tool-call:` executor prefix. */
+  const mcpServers: MCPServerRef[] = useMemo(
+    () => doc?.meta.mcpServers ?? [],
+    [doc?.meta.mcpServers],
+  );
+  const registry = useMemo(
+    () => withMcpServers(baseRegistry, mcpServers),
+    [baseRegistry, mcpServers],
+  );
+
+  /* ---------- MCP import modal ---------- */
+  const [mcpModal, setMcpModal] = useState<{ mode: 'add' } | { mode: 'edit'; initial: MCPServerRef } | null>(null);
+  const openMcpAdd = useCallback(() => setMcpModal({ mode: 'add' }), []);
+  const closeMcpModal = useCallback(() => setMcpModal(null), []);
+  const confirmMcpServer = useCallback(
+    (server: MCPServerRef) => {
+      applyPatch({ kind: 'upsert-mcp-server', server });
+      setMcpModal(null);
+    },
+    [applyPatch],
+  );
 
   /* ---------- pan & zoom ---------- */
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -465,8 +493,17 @@ export function Canvas({
           registry={registry}
           onPick={handleInsert}
           onClose={closeInsertion}
+          onAddMcp={openMcpAdd}
         />
       )}
+
+      {mcpModal ? (
+        <MCPImportModal
+          initial={mcpModal.mode === 'edit' ? mcpModal.initial : undefined}
+          onClose={closeMcpModal}
+          onConfirm={confirmMcpServer}
+        />
+      ) : null}
 
       {doc.nodes.length === 0 ? (
         <EmptyPrompt
@@ -526,12 +563,16 @@ function InsertionPopover({
   registry,
   onPick,
   onClose,
+  onAddMcp,
 }: {
   insertion: InsertionTarget;
   view: { x: number; y: number; zoom: number };
   registry: WorkflowHandle['registry'];
   onPick: (def: NodeDefinition) => void;
   onClose: () => void;
+  /** Called when the picker's "+ MCP server" tile is clicked. Omitted while
+   *  picking a trigger (MCP servers expose actions, not triggers). */
+  onAddMcp?: () => void;
 }) {
   const left = insertion.screenX * view.zoom + view.x;
   const top = insertion.screenY * view.zoom + view.y + 18;
@@ -667,6 +708,31 @@ function InsertionPopover({
                 }
               />
             ))}
+            {onAddMcp ? (
+              <button
+                type="button"
+                className="tr-picker__feat tr-picker__feat--add"
+                onClick={onAddMcp}
+                title="Import an MCP server"
+              >
+                <span className="tr-picker__feat-square" aria-hidden>
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </span>
+                <span className="tr-picker__feat-label">MCP server</span>
+              </button>
+            ) : null}
           </div>
         ) : null}
 

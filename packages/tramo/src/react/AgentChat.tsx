@@ -342,6 +342,8 @@ function summarizePatch(p: Patch): string {
     case 'add-edge':         return `+ add-edge ${p.edge.source}→${p.edge.target}`;
     case 'remove-edge':      return `– remove-edge ${p.id}`;
     case 'set-full-doc':     return `↻ replace doc (${p.doc.nodes.length} nodes)`;
+    case 'upsert-mcp-server': return `+ mcp server ${p.server.id} (${p.server.tools.length} tools)`;
+    case 'remove-mcp-server': return `– mcp server ${p.id}`;
   }
 }
 

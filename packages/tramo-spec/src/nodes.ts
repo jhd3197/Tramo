@@ -13,6 +13,7 @@
 import type {
   FlowParam,
   IntegrationDefinition,
+  MCPServerRef,
   NodeDefinition,
   NodePort,
   SwitchCase,
@@ -843,3 +844,81 @@ export const BUILTIN_REGISTRY: NodeRegistry = createRegistry(
 );
 
 export { BUILTIN_INTEGRATIONS, BUILTIN_INTEGRATION_NODES };
+
+/* ====================================================================== */
+/* MCP overlay — synthesise picker tiles + per-tool node defs from servers  */
+/* ====================================================================== */
+
+/** Prefix used for synthesised MCP NodeDefinition ids. The runtime registry's
+ *  prefix-fallback lookup matches this and dispatches all such ids to the
+ *  single `mcp-tool-call` executor. */
+export const MCP_NODE_ID_PREFIX = 'mcp-tool-call:';
+
+const MCP_TILE_COLOR = '#7c3aed';
+
+/** Build the IntegrationDefinition the picker uses to render the tile for
+ *  this MCP server. The tile id matches the server slug, so every synthesised
+ *  NodeDefinition can point at it via `integrationId`. */
+export function mcpServerToIntegration(server: MCPServerRef): IntegrationDefinition {
+  return {
+    id: server.id,
+    name: server.name,
+    description: server.description ?? `MCP server · ${server.tools.length} tool${server.tools.length === 1 ? '' : 's'}`,
+    icon: 'Plug',
+    color: MCP_TILE_COLOR,
+    category: 'MCP',
+  };
+}
+
+/** Synthesise one NodeDefinition per cached tool. Each def carries the
+ *  server's URL and the tool's name as field defaults so the runtime can
+ *  dispatch without re-reading the server registry. The def id namespace is
+ *  `mcp-tool-call:<serverId>:<toolName>`. */
+export function mcpServerToNodeDefs(server: MCPServerRef): NodeDefinition[] {
+  return server.tools.map((tool) => ({
+    id: `${MCP_NODE_ID_PREFIX}${server.id}:${tool.name}`,
+    integrationId: server.id,
+    name: `${server.name} · ${tool.name}`,
+    operationName: tool.name,
+    category: 'action' as const,
+    description: tool.description ?? `Call the "${tool.name}" tool on ${server.name}.`,
+    icon: 'Plug',
+    color: MCP_TILE_COLOR,
+    inputs: [{ key: 'in', label: 'In', type: 'any' as const }],
+    outputs: [
+      { key: 'out', label: 'Result', type: 'object' as const },
+      { key: 'error', label: 'Error', type: 'object' as const },
+    ],
+    fields: [
+      { key: 'serverUrl', type: 'url' as const, label: 'Server URL', default: server.url },
+      { key: 'toolName', type: 'text' as const, label: 'Tool name', default: tool.name },
+      {
+        key: 'arguments',
+        type: 'json' as const,
+        label: 'Arguments (JSON, supports {{var}})',
+        default: '{}',
+        help: tool.inputSchema
+          ? `Schema: ${JSON.stringify(tool.inputSchema)}`
+          : undefined,
+      },
+      { key: 'authToken', type: 'secret' as const, label: 'Bearer token', optional: true, default: server.authToken ?? '' },
+      { key: 'timeoutMs', type: 'number' as const, label: 'Timeout (ms)', default: 30000, optional: true },
+    ],
+  }));
+}
+
+/** Build a registry that overlays the dynamic MCP defs from a doc on top of
+ *  the static `base` registry. The picker and inspector use the returned
+ *  registry; the runtime never needs to (synthesised defs share the same
+ *  executor as `mcp-tool-call`). */
+export function withMcpServers(
+  base: NodeRegistry,
+  servers: MCPServerRef[],
+): NodeRegistry {
+  if (servers.length === 0) return base;
+  const extraDefs = servers.flatMap(mcpServerToNodeDefs);
+  const extraIntegrations = servers.map(mcpServerToIntegration);
+  const combinedDefs = [...base.list(), ...extraDefs];
+  const combinedIntegrations = [...base.integrations(), ...extraIntegrations];
+  return createRegistry(combinedDefs, combinedIntegrations);
+}

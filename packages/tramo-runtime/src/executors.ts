@@ -23,7 +23,21 @@ export function createExecutorRegistry(executors: NodeExecutor[]): ExecutorRegis
   const map = new Map(executors.map((e) => [e.id, e]));
   return {
     list: () => Array.from(map.values()),
-    get: (id) => map.get(id),
+    get: (id) => {
+      const exact = map.get(id);
+      if (exact) return exact;
+      // Prefix fallback: ids shaped `<executorId>:<...>` dispatch to the
+      // executor named by the prefix. Used by MCP — every dynamically-
+      // synthesised `mcp-tool-call:<server>:<tool>` node maps to the single
+      // `mcp-tool-call` executor, which reads serverUrl + toolName from the
+      // node's own config.
+      const colon = id.indexOf(':');
+      if (colon > 0) {
+        const prefix = id.slice(0, colon);
+        return map.get(prefix);
+      }
+      return undefined;
+    },
   };
 }
 

@@ -26,6 +26,48 @@ export interface WorkflowMeta {
   tags?: string[];
   /** Last-touched timestamp (ms since epoch). Optional; runtimes/UI may stamp it. */
   updatedAt?: number;
+  /**
+   * MCP servers imported into this workflow. Each entry both persists the
+   * server's connection info (URL + optional bearer token) and caches the
+   * tools/list response so the picker can render tiles offline. The editor
+   * folds these into a dynamic NodeDefinition overlay on top of the static
+   * registry; the runtime never reads them directly — node configs carry
+   * their own copy of serverUrl + toolName.
+   */
+  mcpServers?: MCPServerRef[];
+}
+
+/* ====================================================================== */
+/* MCP (Model Context Protocol) — imported servers + cached tool defs       */
+/* ====================================================================== */
+
+export interface MCPToolRef {
+  /** The exact tool name as returned by the server's tools/list. */
+  name: string;
+  /** Human-readable description (used as the picker row subtitle). */
+  description?: string;
+  /** JSON schema for the tool's arguments object. Optional; surfaced as a
+   *  hint in the inspector when present. */
+  inputSchema?: unknown;
+}
+
+export interface MCPServerRef {
+  /** Stable slug — used as the integrationId for synthesized tiles and as
+   *  the `<serverId>` segment in synthesized NodeDefinition ids. */
+  id: string;
+  /** Display name shown on the picker tile. */
+  name: string;
+  /** HTTP endpoint the runtime POSTs JSON-RPC requests to. */
+  url: string;
+  /** Optional bearer token sent on every call. */
+  authToken?: string;
+  /** Optional one-line description shown under the tile name. */
+  description?: string;
+  /** Cached tool list from the last tools/list call. May be stale; the
+   *  editor refreshes on demand. */
+  tools: MCPToolRef[];
+  /** Wall-clock timestamp of the last tools/list refresh. */
+  fetchedAt?: number;
 }
 
 /**
@@ -85,7 +127,9 @@ export type Patch =
   | { kind: 'remove-node'; id: string }
   | { kind: 'add-edge'; edge: WorkflowEdge }
   | { kind: 'remove-edge'; id: string }
-  | { kind: 'set-full-doc'; doc: WorkflowDoc };
+  | { kind: 'set-full-doc'; doc: WorkflowDoc }
+  | { kind: 'upsert-mcp-server'; server: MCPServerRef }
+  | { kind: 'remove-mcp-server'; id: string };
 
 export interface PatchResult {
   ok: boolean;
