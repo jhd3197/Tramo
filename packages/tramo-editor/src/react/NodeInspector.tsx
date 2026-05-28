@@ -29,6 +29,8 @@ import {
 import type { SaveState } from './useWorkflow.js';
 import { getVarSuggestions, type VarSuggestion } from './varSuggestions.js';
 import { VarPicker } from './VarPicker.js';
+import { VarRichField } from './VarRichField.js';
+import { NodeIcon } from './icons.js';
 import { RuleField } from './RuleField.js';
 import { SwitchCasesField } from './SwitchCasesField.js';
 import { FlowParamsField } from './FlowParamsField.js';
@@ -208,6 +210,9 @@ function NodeInspectorBody({
   return (
     <div className="tr-inspector">
       <div className="tr-inspector__head">
+        <span className="tr-inspector__icon" aria-hidden>
+          <NodeIcon definition={def} size={20} />
+        </span>
         <div className="tr-inspector__titles">
           <input
             type="text"
@@ -228,10 +233,14 @@ function NodeInspectorBody({
               }
             }}
           />
-          <div className="tr-inspector__id">{node.id}</div>
+          <div className="tr-inspector__meta">
+            <span className="tr-inspector__type">{def.name}</span>
+            <span className="tr-inspector__sep" aria-hidden>·</span>
+            <span className="tr-inspector__id">{node.id}</span>
+          </div>
         </div>
         {onClose ? (
-          <button type="button" className="tr-btn tr-btn--ghost" onClick={onClose}>
+          <button type="button" className="tr-btn tr-btn--ghost tr-inspector__close" onClick={onClose} aria-label="Close inspector">
             ×
           </button>
         ) : null}
@@ -288,15 +297,14 @@ function FieldRow({
       return (
         <div className="tr-field">
           {label}
-          <PickerTextField
-            tag="textarea"
+          <VarRichField
             id={id}
             value={String(value ?? '')}
             onLocalChange={(v) => onLocalChange(v)}
             onCommit={(v) => onCommit(v)}
-            rows={3}
-            className="tr-input tr-input--area"
             suggestions={varSuggestions}
+            multiline
+            rows={3}
           />
           {help}
         </div>
@@ -490,15 +498,13 @@ function FieldRow({
       return (
         <div className="tr-field">
           {label}
-          <PickerTextField
-            tag="input"
+          <VarRichField
             id={id}
-            type="url"
             value={String(value ?? '')}
             onLocalChange={(v) => onLocalChange(v)}
             onCommit={(v) => onCommit(v)}
-            className="tr-input"
             suggestions={varSuggestions}
+            placeholder="https://…"
           />
           {help}
         </div>
@@ -509,14 +515,11 @@ function FieldRow({
       return (
         <div className="tr-field">
           {label}
-          <PickerTextField
-            tag="input"
+          <VarRichField
             id={id}
-            type="text"
             value={String(value ?? '')}
             onLocalChange={(v) => onLocalChange(v)}
             onCommit={(v) => onCommit(v)}
-            className="tr-input"
             suggestions={varSuggestions}
           />
           {help}

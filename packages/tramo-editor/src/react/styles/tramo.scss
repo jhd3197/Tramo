@@ -56,6 +56,12 @@
     will-change: transform;
   }
 
+  /* Applied briefly when openInsertion auto-pans to make room for the
+   * picker; user-driven pan/zoom stays instant. */
+  &--panning &__world {
+    transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
   &__edges {
     position: absolute;
     inset: 0;
@@ -659,6 +665,14 @@
   inset: 0;
   background: transparent;
   z-index: 50;
+
+  /* The picker portal renders into <body>, so the scrim is detached from
+   * the canvas wrapper and must cover the whole viewport itself. It also
+   * swallows wheel + pointer events to lock canvas pan/zoom while open. */
+  &--fixed {
+    position: fixed;
+    z-index: 1000;
+  }
 }
 
 .tr-popover {
@@ -756,6 +770,11 @@
 
 /* ---------------------- picker (featured tiles + flat row list) ---------------------- */
 
+@keyframes tr-picker-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 .tr-picker {
   position: absolute;
   z-index: 51;
@@ -770,6 +789,24 @@
   font-family: var(--tr-sans);
   color: var(--tr-text);
   overflow: hidden;
+  transform-origin: top left;
+
+  /* The popover starts hidden (visibility:hidden) for a one-frame measure
+   * pass; we only animate once it's actually visible, otherwise the
+   * animation would run while invisible and the user would see nothing. */
+  &.is-ready {
+    animation: tr-picker-in 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &.is-ready { animation: none; }
+  }
+
+  /* Paired with `.tr-popover-scrim--fixed` when portalled to body. */
+  &--fixed {
+    position: fixed;
+    z-index: 1001;
+  }
 
   &__head {
     flex-shrink: 0;
@@ -1130,7 +1167,7 @@
 }
 
 .tr-inspector {
-  padding: 14px;
+  padding: 16px 14px 18px;
 
   &--empty {
     color: var(--tr-text-muted);
@@ -1142,9 +1179,21 @@
   &__head {
     display: flex;
     align-items: flex-start;
-    justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 8px;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  &__icon {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--tr-surface-alt);
+    border: 1px solid var(--tr-border);
+    border-radius: 8px;
+    color: var(--tr-text);
+    margin-top: 1px;
   }
   &__titles {
     min-width: 0;
@@ -1184,14 +1233,41 @@
       font-weight: 500;
     }
   }
+  &__meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 3px;
+    min-width: 0;
+  }
+  &__type {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--tr-text-muted);
+    white-space: nowrap;
+  }
+  &__sep {
+    color: var(--tr-border-strong);
+    font-size: 10px;
+    line-height: 1;
+  }
   &__id {
     font-family: var(--tr-mono);
     font-size: 10px;
     color: var(--tr-text-muted);
-    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  &__close {
+    margin-top: -2px;
+    font-size: 16px;
+    line-height: 1;
+    padding: 2px 8px;
   }
   &__desc {
-    margin: 4px 0 12px;
+    margin: 4px 0 14px;
     font-size: 12px;
     color: var(--tr-text-muted);
     line-height: 1.5;
@@ -1199,7 +1275,7 @@
   &__fields {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 14px;
   }
 }
 
@@ -1257,6 +1333,149 @@
     line-height: 1.45;
     resize: vertical;
     min-height: 80px;
+  }
+}
+
+/* ---------------------- rich var field (contentEditable + chips) ---------------------- */
+
+.tr-rich-wrap {
+  position: relative;
+}
+
+.tr-rich {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--tr-surface);
+  border: 1px solid var(--tr-border);
+  border-radius: var(--tr-radius-sm);
+  transition: border-color 120ms, box-shadow 120ms;
+
+  &.is-focused {
+    border-color: var(--tr-accent);
+    box-shadow: 0 0 0 2px var(--tr-accent-soft);
+  }
+
+  &__editor {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 7px 64px 7px 9px;
+    font-family: var(--tr-sans);
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--tr-text);
+    outline: none;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+
+    /* Floating label-style placeholder using data-placeholder. We use
+     * :empty so it disappears the moment any text or chip lands. */
+    &:empty::before {
+      content: attr(data-placeholder);
+      color: var(--tr-text-muted);
+      opacity: 0.85;
+      pointer-events: none;
+    }
+  }
+
+  &--line &__editor {
+    /* Cap at one visual line; long content scrolls horizontally so the
+     * field height stays predictable next to other rows. */
+    white-space: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    &::-webkit-scrollbar { height: 4px; }
+    &::-webkit-scrollbar-thumb { background: var(--tr-border-strong); border-radius: 2px; }
+  }
+
+  &--area &__editor {
+    min-height: 56px;
+    resize: vertical;
+    overflow-y: auto;
+  }
+
+  &__btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    background: var(--tr-surface-alt);
+    border: 1px solid var(--tr-border);
+    border-radius: 999px;
+    font-family: var(--tr-mono);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--tr-text-muted);
+    cursor: pointer;
+    transition: background 100ms, color 100ms, border-color 100ms;
+
+    &:hover:not(:disabled) {
+      background: var(--tr-accent-soft);
+      color: var(--tr-accent);
+      border-color: var(--tr-accent);
+    }
+
+    &:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    svg { display: block; }
+  }
+}
+
+/* The chip rendered inside .tr-rich for each {{path}} token. Power
+ * Automate-style: rounded mint pill, brand-accent icon + readable name. */
+.tr-var-pill {
+  --pill-bg:     color-mix(in srgb, var(--tr-accent) 12%, var(--tr-surface));
+  --pill-border: color-mix(in srgb, var(--tr-accent) 35%, var(--tr-border));
+  --pill-fg:     color-mix(in srgb, var(--tr-accent) 78%, var(--tr-text));
+
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 1px 2px;
+  padding: 1px 8px 1px 6px;
+  vertical-align: baseline;
+  background: var(--pill-bg);
+  border: 1px solid var(--pill-border);
+  border-radius: 999px;
+  color: var(--pill-fg);
+  font-family: var(--tr-sans);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.45;
+  white-space: nowrap;
+  user-select: none;
+  cursor: default;
+  transition: background 100ms, border-color 100ms, color 100ms;
+
+  /* Make the chip a discrete cursor stop so backspace lands on it as
+   * a unit and clicks select it without entering it. */
+  caret-color: transparent;
+
+  &:hover {
+    background: color-mix(in srgb, var(--tr-accent) 18%, var(--tr-surface));
+    border-color: var(--tr-accent);
+    color: var(--tr-accent);
+  }
+
+  &__icon {
+    flex-shrink: 0;
+    opacity: 0.85;
+  }
+
+  &__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 220px;
   }
 }
 
