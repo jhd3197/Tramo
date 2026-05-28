@@ -293,11 +293,21 @@ export function Canvas({
     /* Build "edges grouped by (source, sourceHandle)" so we know which
      * outputs of a multi-output node already have a connection. Every
      * un-connected output gets its own trailing + so users can extend
-     * each branch independently. */
+     * each branch independently.
+     *
+     * Edges from older docs (or any caller that omits `sourceHandle`)
+     * are normalised to the source node's first output — the same
+     * default `outputOffset` uses when drawing the edge line. Without
+     * this, a wired-up `out`/`yes` port would still render a leaf-+
+     * on top of the between-+ for the same connection.
+     */
     const connectedOuts = new Map<string, Set<string>>();
     for (const e of doc.edges) {
+      const srcDef = registry.get(doc.nodes.find((n) => n.id === e.source)?.type ?? '');
+      const defaultHandle = srcDef?.outputs?.[0]?.key;
+      const handle = e.sourceHandle ?? defaultHandle ?? '__default__';
       const set = connectedOuts.get(e.source) ?? new Set<string>();
-      set.add(e.sourceHandle ?? '__default__');
+      set.add(handle);
       connectedOuts.set(e.source, set);
     }
 

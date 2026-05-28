@@ -20,8 +20,10 @@
  */
 
 import {
+  BUILTIN_INTEGRATIONS,
   BUILTIN_NODES,
   createRegistry,
+  type IntegrationDefinition,
   type NodeDefinition,
   type NodeRegistry,
 } from 'tramo-spec';
@@ -42,6 +44,11 @@ export interface NodePack {
   readonly version: string;
   /** Frozen list of node entries the pack provides. */
   readonly entries: readonly NodePackEntry[];
+  /** Integration metadata the pack contributes (one tile per integration
+   *  in the editor's step picker). Operation node ids should match the
+   *  `integrationId` on entries' definitions. Optional — packs that ship
+   *  only standalone nodes can omit it. */
+  readonly integrations: readonly IntegrationDefinition[];
 }
 
 export interface DefineNodePackInput {
@@ -49,6 +56,7 @@ export interface DefineNodePackInput {
   name: string;
   version: string;
   entries: NodePackEntry[];
+  integrations?: IntegrationDefinition[];
 }
 
 const PACK_ID_RE = /^[a-z][a-z0-9-]*(\/[a-z0-9-]+)?$/;
@@ -88,6 +96,7 @@ export function defineNodePack(input: DefineNodePackInput): NodePack {
     name: input.name,
     version: input.version,
     entries: Object.freeze([...input.entries]),
+    integrations: Object.freeze([...(input.integrations ?? [])]),
   });
 }
 
@@ -111,6 +120,7 @@ export function combinePacks(packs: NodePack[]): CombinedRegistries {
   const source = new Map<string, string>();
   const definitions: NodeDefinition[] = [];
   const executors: NodeExecutor[] = [];
+  const integrationMap = new Map<string, IntegrationDefinition>();
 
   for (const pack of packs) {
     for (const entry of pack.entries) {
@@ -124,10 +134,13 @@ export function combinePacks(packs: NodePack[]): CombinedRegistries {
       definitions.push(entry.definition);
       executors.push(entry.executor);
     }
+    for (const integ of pack.integrations) {
+      if (!integrationMap.has(integ.id)) integrationMap.set(integ.id, integ);
+    }
   }
 
   return {
-    nodes: createRegistry(definitions),
+    nodes: createRegistry(definitions, Array.from(integrationMap.values())),
     executors: createExecutorRegistry(executors),
     source,
   };
@@ -151,4 +164,5 @@ export const BUILTIN_PACK: NodePack = defineNodePack({
     }
     return { definition, executor };
   }),
+  integrations: [...BUILTIN_INTEGRATIONS],
 });
