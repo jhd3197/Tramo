@@ -21,7 +21,7 @@ import { CATEGORY_META, NodeIcon } from './icons.js';
 import { outputOffset } from './layout.js';
 import { renderTitleWithVars } from './renderTitle.js';
 import { NodeMenu } from './NodeMenu.js';
-import { resolveOutputs, type NodeDefinition, type Patch, type WorkflowNode } from 'tramo-spec';
+import { resolveOutputs, type NodeDefinition, type NodeField, type Patch, type WorkflowNode } from 'tramo-spec';
 
 /**
  * Per-node execution state derived from the runner's event stream.
@@ -69,6 +69,7 @@ function NodeViewImpl({
   const category = definition?.category;
   const catMeta = category ? CATEGORY_META[category] : undefined;
   const description = definition?.description;
+  const preview = definition ? headlinePreview(node, definition) : [];
 
   const style: CSSProperties = {
     left: x - width / 2,
@@ -108,7 +109,18 @@ function NodeViewImpl({
           </span>
           <span className="tr-node-v2__titles">
             <span className="tr-node-v2__name">{renderTitleWithVars(label)}</span>
-            {description ? (
+            {preview.length > 0 ? (
+              <span className="tr-node-v2__preview">
+                {preview.map((row) => (
+                  <span key={row.key} className="tr-node-v2__preview-row">
+                    <span className="tr-node-v2__preview-key">{row.label}</span>
+                    <span className="tr-node-v2__preview-val" title={row.fullValue}>
+                      {row.value}
+                    </span>
+                  </span>
+                ))}
+              </span>
+            ) : description ? (
               <span className="tr-node-v2__desc">{renderTitleWithVars(description)}</span>
             ) : (
               <span className="tr-node-v2__type">{node.type}</span>
@@ -223,4 +235,103 @@ function stringify(v: unknown): string {
   } catch {
     return String(v);
   }
+}
+
+/* ====================================================================== */
+/* Headline preview — pick 1-2 config fields to surface on the card        */
+/* ====================================================================== */
+
+interface PreviewRow {
+  /** The field's config key (used as the React key). */
+  key: string;
+  /** Compact label shown to the left — derived from the field key, not the
+   *  full label (which is verbose for inspector use). */
+  label: string;
+  /** Truncated single-line value rendered in the card. */
+  value: string;
+  /** Full (untruncated) value piped into the `title` attribute. */
+  fullValue: string;
+}
+
+const MAX_PREVIEW_ROWS = 2;
+const MAX_VALUE_CHARS = 28;
+
+/**
+ * Decide which config fields are worth showing inside the card. The aim is
+ * "show enough that a glance tells you what this node is configured to do"
+ * without competing with the right-rail inspector.
+ *
+ * Rules:
+ *  - Secrets never render (we'd leak tokens onto the canvas).
+ *  - Skip fields whose current value is empty / null / equals the default.
+ *  - Skip structured editor types (rule, switch-cases, flow-params) — they
+ *    don't summarise well in one line; the inspector is the right surface.
+ *  - Cap at two rows. Field order in the definition wins ties.
+ */
+function headlinePreview(node: WorkflowNode, def: NodeDefinition): PreviewRow[] {
+  const rows: PreviewRow[] = [];
+  for (const field of def.fields) {
+    if (rows.length >= MAX_PREVIEW_ROWS) break;
+    if (!isPreviewable(field)) continue;
+    const raw = node.config[field.key];
+    if (!hasSubstantiveValue(raw, field.default)) continue;
+    const stringified = previewStringify(raw);
+    if (!stringified) continue;
+    rows.push({
+      key: field.key,
+      label: shortFieldLabel(field),
+      value: truncate(stringified, MAX_VALUE_CHARS),
+      fullValue: stringified,
+    });
+  }
+  return rows;
+}
+
+function isPreviewable(field: NodeField): boolean {
+  if (field.type === 'secret') return false;
+  if (field.type === 'rule' || field.type === 'switch-cases' || field.type === 'flow-params') return false;
+  return true;
+}
+
+function hasSubstantiveValue(
+  value: unknown,
+  defaultValue: NodeField['default'],
+): boolean {
+  if (value === undefined || value === null) return false;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed === '') return false;
+    if (typeof defaultValue === 'string' && trimmed === defaultValue.trim()) return false;
+    return true;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return value !== defaultValue;
+  }
+  // Objects / arrays — render only when explicitly populated.
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'object') return Object.keys(value as object).length > 0;
+  return true;
+}
+
+function previewStringify(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function truncate(s: string, max: number): string {
+  const flat = s.replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
+
+/** Short label for the preview row's left column. Strips parenthesised
+ *  hints and trailing helper text from the inspector label so a row reads
+ *  like `to: jhd3197@...` instead of `To (comma-separated): jhd3197@...`. */
+function shortFieldLabel(field: NodeField): string {
+  const fromLabel = field.label.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  return fromLabel || field.key;
 }

@@ -171,6 +171,47 @@
     -webkit-box-orient: vertical;
   }
 
+  /* config preview — replaces __desc when the node has populated values.
+   * Two compact rows of `key=value` so a glance reads what the node is
+   * configured to do, without the side inspector. */
+  &__preview {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  &__preview-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 11.5px;
+    line-height: 1.35;
+    min-width: 0;
+  }
+  &__preview-key {
+    flex-shrink: 0;
+    font-family: var(--tr-mono);
+    font-size: 10.5px;
+    color: var(--tr-text-muted);
+    text-transform: lowercase;
+    letter-spacing: 0.01em;
+    max-width: 38%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    &::after { content: ':'; }
+  }
+  &__preview-val {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--tr-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--tr-mono);
+    font-size: 11px;
+  }
+
   &__type {
     font-family: var(--tr-mono);
     font-size: 11px;
