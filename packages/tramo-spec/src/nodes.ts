@@ -20,10 +20,6 @@ import type {
   WorkflowNode,
 } from './types.js';
 import { emptyRuleGroup } from './rules.js';
-import {
-  BUILTIN_INTEGRATIONS,
-  BUILTIN_INTEGRATION_NODES,
-} from './integrations/index.js';
 
 export interface NodeRegistry {
   list(): NodeDefinition[];
@@ -761,14 +757,11 @@ export const BUILTIN_NODES: NodeDefinition[] = [
     ],
   },
 
-  /* ---------- integrations (multi-op packs) ----------
-   *
-   * The actual operation nodes live in ./integrations/*.ts. This file
-   * keeps only the core, integration-agnostic nodes; everything brand-
-   * specific (GitHub, Discord, Telegram, Notion, Gmail, OpenAI, …) is
-   * pulled in below so each provider can ship multiple operations.
+  /* Brand-specific integration nodes are now shipped as separate npm
+   * packages under @tramo/<brand> (gmail, github, telegram, notion, openai,
+   * anthropic, linear, airtable, stripe, discord). Consumers opt in via
+   * combinePacks([BUILTIN_PACK, GMAIL, …]) — see tramo-runtime/src/pack.ts.
    */
-  ...BUILTIN_INTEGRATION_NODES,
 ];
 
 /* ====================================================================== */
@@ -837,13 +830,9 @@ export function emptyFlowParam(existing: FlowParam[] = []): FlowParam {
   return { name: `param${i}`, type: 'any' };
 }
 
-/** Default registry — equivalent to htmlstudio's BUILTIN_REGISTRY. */
-export const BUILTIN_REGISTRY: NodeRegistry = createRegistry(
-  BUILTIN_NODES,
-  BUILTIN_INTEGRATIONS,
-);
-
-export { BUILTIN_INTEGRATIONS, BUILTIN_INTEGRATION_NODES };
+/** Default registry — built-in nodes only. Brand integrations live in
+ *  @tramo/<brand> packages; merge them via combinePacks at the app layer. */
+export const BUILTIN_REGISTRY: NodeRegistry = createRegistry(BUILTIN_NODES, []);
 
 /* ====================================================================== */
 /* MCP overlay — synthesise picker tiles + per-tool node defs from servers  */

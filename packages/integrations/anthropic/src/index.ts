@@ -1,16 +1,16 @@
 /**
- * Anthropic (Claude) integration pack.
+ * @tramo/anthropic — official Anthropic / Claude integration pack.
  *
- * Sibling to the generic `ai-prompt` node and the openai pack. Exposes
- * the things Claude is uniquely good at: long-context messages, tool
- * use, vision, structured extraction.
+ * Exposes the things Claude is uniquely good at: long-context messages,
+ * tool use, vision, structured extraction.
  */
 
-import type { IntegrationDefinition, NodeDefinition } from '../types.js';
+import { defineNodePack, defineStubExecutor } from 'tramo-runtime';
+import type { IntegrationDefinition, NodeDefinition } from 'tramo-spec';
 
 const COLOR = '#d97706';
 
-export const DEFINITION: IntegrationDefinition = {
+const DEFINITION: IntegrationDefinition = {
   id: 'anthropic',
   name: 'Anthropic',
   description: 'Claude messages, tool use, vision, summarize, classify.',
@@ -19,7 +19,7 @@ export const DEFINITION: IntegrationDefinition = {
   category: 'AI',
 };
 
-export const NODES: NodeDefinition[] = [
+const NODES: NodeDefinition[] = [
   {
     id: 'anthropic-message',
     integrationId: 'anthropic',
@@ -173,3 +173,14 @@ export const NODES: NodeDefinition[] = [
     ],
   },
 ];
+
+export default defineNodePack({
+  id: 'anthropic',
+  name: 'Anthropic',
+  version: '0.1.0',
+  entries: NODES.map((definition) => ({
+    definition,
+    executor: defineStubExecutor(definition),
+  })),
+  integrations: [DEFINITION],
+});

@@ -1,19 +1,16 @@
 /**
- * GitHub integration pack.
+ * @tramo/github — official GitHub integration pack.
  *
- * Each entry below is a NodeDefinition tagged with `integrationId: 'github'`
- * so the picker groups them under one tile. Add a new operation by appending
- * to NODES and registering an executor with the same id in tramo-runtime.
- *
- * Shape is intentionally JSON-friendly: an LLM can be handed the GitHub REST
- * docs + the IntegrationDefinition/NodeDefinition types and emit new entries.
+ * Bundles webhook-trigger nodes (Issue / PR / Push events) and operation
+ * nodes (issues, PRs, releases, files, dispatches) with stub executors.
  */
 
-import type { IntegrationDefinition, NodeDefinition } from '../types.js';
+import { defineNodePack, defineStubExecutor } from 'tramo-runtime';
+import type { IntegrationDefinition, NodeDefinition } from 'tramo-spec';
 
 const COLOR = '#24292f';
 
-export const DEFINITION: IntegrationDefinition = {
+const DEFINITION: IntegrationDefinition = {
   id: 'github',
   name: 'GitHub',
   description: 'Issues, PRs, releases, files, dispatches.',
@@ -22,7 +19,7 @@ export const DEFINITION: IntegrationDefinition = {
   category: 'Developer',
 };
 
-export const NODES: NodeDefinition[] = [
+const NODES: NodeDefinition[] = [
   {
     id: 'webhook-trigger:github:issue',
     integrationId: 'github',
@@ -252,3 +249,14 @@ export const NODES: NodeDefinition[] = [
     ],
   },
 ];
+
+export default defineNodePack({
+  id: 'github',
+  name: 'GitHub',
+  version: '0.1.0',
+  entries: NODES.map((definition) => ({
+    definition,
+    executor: defineStubExecutor(definition),
+  })),
+  integrations: [DEFINITION],
+});

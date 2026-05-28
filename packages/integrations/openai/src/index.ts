@@ -1,16 +1,16 @@
 /**
- * OpenAI integration pack.
+ * @tramo/openai — official OpenAI integration pack.
  *
  * Sibling to the generic `ai-prompt` node — provides OpenAI-specific
- * operations the generic node doesn't (image gen, embeddings, audio,
- * moderation).
+ * operations the generic node doesn't (image, embed, audio, moderation).
  */
 
-import type { IntegrationDefinition, NodeDefinition } from '../types.js';
+import { defineNodePack, defineStubExecutor } from 'tramo-runtime';
+import type { IntegrationDefinition, NodeDefinition } from 'tramo-spec';
 
 const COLOR = '#10a37f';
 
-export const DEFINITION: IntegrationDefinition = {
+const DEFINITION: IntegrationDefinition = {
   id: 'openai',
   name: 'OpenAI',
   description: 'Chat, images, embeddings, audio, moderation.',
@@ -19,7 +19,7 @@ export const DEFINITION: IntegrationDefinition = {
   category: 'AI',
 };
 
-export const NODES: NodeDefinition[] = [
+const NODES: NodeDefinition[] = [
   {
     id: 'openai-chat',
     integrationId: 'openai',
@@ -177,3 +177,14 @@ export const NODES: NodeDefinition[] = [
     ],
   },
 ];
+
+export default defineNodePack({
+  id: 'openai',
+  name: 'OpenAI',
+  version: '0.1.0',
+  entries: NODES.map((definition) => ({
+    definition,
+    executor: defineStubExecutor(definition),
+  })),
+  integrations: [DEFINITION],
+});

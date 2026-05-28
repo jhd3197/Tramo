@@ -1,15 +1,17 @@
 /**
- * Gmail integration pack.
+ * @tramo/gmail — official Gmail integration pack.
  *
- * OAuth-based. The token field stays a `secret` here; the runtime wires
- * the actual refresh-flow on send.
+ * Bundles the picker tile (IntegrationDefinition), every operation's
+ * NodeDefinition, and a stub executor per operation into a single
+ * `NodePack`. Compose with the builtin pack via `combinePacks`.
  */
 
-import type { IntegrationDefinition, NodeDefinition } from '../types.js';
+import { defineNodePack, defineStubExecutor } from 'tramo-runtime';
+import type { IntegrationDefinition, NodeDefinition } from 'tramo-spec';
 
 const COLOR = '#ea4335';
 
-export const DEFINITION: IntegrationDefinition = {
+const DEFINITION: IntegrationDefinition = {
   id: 'gmail',
   name: 'Gmail',
   description: 'Send, reply, draft, search, label messages.',
@@ -18,7 +20,7 @@ export const DEFINITION: IntegrationDefinition = {
   category: 'Communication',
 };
 
-export const NODES: NodeDefinition[] = [
+const NODES: NodeDefinition[] = [
   {
     id: 'gmail-send',
     integrationId: 'gmail',
@@ -174,3 +176,14 @@ export const NODES: NodeDefinition[] = [
     ],
   },
 ];
+
+export default defineNodePack({
+  id: 'gmail',
+  name: 'Gmail',
+  version: '0.1.0',
+  entries: NODES.map((definition) => ({
+    definition,
+    executor: defineStubExecutor(definition),
+  })),
+  integrations: [DEFINITION],
+});

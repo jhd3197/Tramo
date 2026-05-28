@@ -1,15 +1,13 @@
 /**
- * Linear integration pack.
- *
- * Sibling to the github pack for engineering workflows — issues here are
- * Linear's first-class tickets, not GitHub issues.
+ * @tramo/linear — official Linear integration pack.
  */
 
-import type { IntegrationDefinition, NodeDefinition } from '../types.js';
+import { defineNodePack, defineStubExecutor } from 'tramo-runtime';
+import type { IntegrationDefinition, NodeDefinition } from 'tramo-spec';
 
 const COLOR = '#5e6ad2';
 
-export const DEFINITION: IntegrationDefinition = {
+const DEFINITION: IntegrationDefinition = {
   id: 'linear',
   name: 'Linear',
   description: 'Tickets, comments, projects, search.',
@@ -18,7 +16,7 @@ export const DEFINITION: IntegrationDefinition = {
   category: 'Developer',
 };
 
-export const NODES: NodeDefinition[] = [
+const NODES: NodeDefinition[] = [
   {
     id: 'webhook-trigger:linear:issue-change',
     integrationId: 'linear',
@@ -164,3 +162,14 @@ export const NODES: NodeDefinition[] = [
     ],
   },
 ];
+
+export default defineNodePack({
+  id: 'linear',
+  name: 'Linear',
+  version: '0.1.0',
+  entries: NODES.map((definition) => ({
+    definition,
+    executor: defineStubExecutor(definition),
+  })),
+  integrations: [DEFINITION],
+});

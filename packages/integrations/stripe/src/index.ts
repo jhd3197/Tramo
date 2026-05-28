@@ -1,16 +1,13 @@
 /**
- * Stripe integration pack — Commerce vertical.
- *
- * Uses a restricted API key. Stub executors return the shape Stripe's API
- * returns so downstream nodes can build templates against it before the
- * real call is wired.
+ * @tramo/stripe — official Stripe integration pack.
  */
 
-import type { IntegrationDefinition, NodeDefinition } from '../types.js';
+import { defineNodePack, defineStubExecutor } from 'tramo-runtime';
+import type { IntegrationDefinition, NodeDefinition } from 'tramo-spec';
 
 const COLOR = '#635bff';
 
-export const DEFINITION: IntegrationDefinition = {
+const DEFINITION: IntegrationDefinition = {
   id: 'stripe',
   name: 'Stripe',
   description: 'Customers, payments, subscriptions, invoices, checkout.',
@@ -19,7 +16,7 @@ export const DEFINITION: IntegrationDefinition = {
   category: 'Commerce',
 };
 
-export const NODES: NodeDefinition[] = [
+const NODES: NodeDefinition[] = [
   {
     id: 'webhook-trigger:stripe:event',
     integrationId: 'stripe',
@@ -172,3 +169,14 @@ export const NODES: NodeDefinition[] = [
     ],
   },
 ];
+
+export default defineNodePack({
+  id: 'stripe',
+  name: 'Stripe',
+  version: '0.1.0',
+  entries: NODES.map((definition) => ({
+    definition,
+    executor: defineStubExecutor(definition),
+  })),
+  integrations: [DEFINITION],
+});

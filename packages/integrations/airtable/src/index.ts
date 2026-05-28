@@ -1,15 +1,13 @@
 /**
- * Airtable integration pack.
- *
- * Sibling to the notion pack for tabular data. Uses Airtable's REST API
- * via a personal access token (replaces the deprecated API keys).
+ * @tramo/airtable — official Airtable integration pack.
  */
 
-import type { IntegrationDefinition, NodeDefinition } from '../types.js';
+import { defineNodePack, defineStubExecutor } from 'tramo-runtime';
+import type { IntegrationDefinition, NodeDefinition } from 'tramo-spec';
 
 const COLOR = '#fcb400';
 
-export const DEFINITION: IntegrationDefinition = {
+const DEFINITION: IntegrationDefinition = {
   id: 'airtable',
   name: 'Airtable',
   description: 'Records, lookups, lists, updates, deletes.',
@@ -18,7 +16,7 @@ export const DEFINITION: IntegrationDefinition = {
   category: 'Productivity',
 };
 
-export const NODES: NodeDefinition[] = [
+const NODES: NodeDefinition[] = [
   {
     id: 'webhook-trigger:airtable:record-change',
     integrationId: 'airtable',
@@ -167,3 +165,14 @@ export const NODES: NodeDefinition[] = [
     ],
   },
 ];
+
+export default defineNodePack({
+  id: 'airtable',
+  name: 'Airtable',
+  version: '0.1.0',
+  entries: NODES.map((definition) => ({
+    definition,
+    executor: defineStubExecutor(definition),
+  })),
+  integrations: [DEFINITION],
+});

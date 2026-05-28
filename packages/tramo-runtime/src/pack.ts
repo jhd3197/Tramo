@@ -20,7 +20,6 @@
  */
 
 import {
-  BUILTIN_INTEGRATIONS,
   BUILTIN_NODES,
   createRegistry,
   type IntegrationDefinition,
@@ -100,6 +99,35 @@ export function defineNodePack(input: DefineNodePackInput): NodePack {
   });
 }
 
+/**
+ * Build a stub executor for a brand-pack node so authors don't have to
+ * hand-write the same logger-and-passthrough block 60 times.
+ *
+ * Triggers forward the inbound webhook payload (matching the built-in
+ * `webhook-trigger` shape). Everything else returns a deterministic
+ * `{ ok: true, stub: id, config, input }` envelope downstream templates
+ * can build against before a real implementation is wired in.
+ */
+export function defineStubExecutor(definition: NodeDefinition): NodeExecutor {
+  const label = definition.operationName ?? definition.name;
+  if (definition.category === 'trigger') {
+    return {
+      id: definition.id,
+      execute: (ctx) => {
+        ctx.log.info(`${label} trigger payload`, ctx.inputs.in);
+        return { out: ctx.inputs.in ?? { body: null, headers: {}, query: {} } };
+      },
+    };
+  }
+  return {
+    id: definition.id,
+    execute: (ctx) => {
+      ctx.log.info(`${label} (stub) — config:`, ctx.config);
+      return { out: { ok: true, stub: definition.id, config: ctx.config, input: ctx.inputs.in } };
+    },
+  };
+}
+
 export interface CombinedRegistries {
   /** Editor-side registry of node definitions. Pass to `useWorkflow`. */
   nodes: NodeRegistry;
@@ -160,23 +188,7 @@ export const BUILTIN_PACK: NodePack = defineNodePack({
   entries: BUILTIN_NODES.map((definition) => {
     const direct = BUILTIN_EXECUTORS.find((e) => e.id === definition.id);
     if (direct) return { definition, executor: direct };
-
-    // Prefix fallback — brand-namespaced ids like `webhook-trigger:github:issue`
-    // reuse the base executor (`webhook-trigger`). We generate a proxy so the
-    // pack convention's `definition.id === executor.id` invariant still
-    // holds; the proxy delegates to the base executor's execute function.
-    const colon = definition.id.indexOf(':');
-    if (colon > 0) {
-      const baseId = definition.id.slice(0, colon);
-      const base = BUILTIN_EXECUTORS.find((e) => e.id === baseId);
-      if (base) {
-        return {
-          definition,
-          executor: { id: definition.id, execute: base.execute },
-        };
-      }
-    }
     throw new Error(`Internal: no executor registered for built-in node "${definition.id}"`);
   }),
-  integrations: [...BUILTIN_INTEGRATIONS],
+  integrations: [],
 });

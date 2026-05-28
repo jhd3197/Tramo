@@ -1,15 +1,13 @@
 /**
- * Discord integration pack.
- *
- * Mix of webhook-based ops (no OAuth needed) and bot-API ops (needs a bot
- * token + channel/user IDs).
+ * @tramo/discord — official Discord integration pack.
  */
 
-import type { IntegrationDefinition, NodeDefinition } from '../types.js';
+import { defineNodePack, defineStubExecutor } from 'tramo-runtime';
+import type { IntegrationDefinition, NodeDefinition } from 'tramo-spec';
 
 const COLOR = '#5865f2';
 
-export const DEFINITION: IntegrationDefinition = {
+const DEFINITION: IntegrationDefinition = {
   id: 'discord',
   name: 'Discord',
   description: 'Webhooks, bot messages, embeds, threads, reactions.',
@@ -18,7 +16,7 @@ export const DEFINITION: IntegrationDefinition = {
   category: 'Communication',
 };
 
-export const NODES: NodeDefinition[] = [
+const NODES: NodeDefinition[] = [
   {
     id: 'webhook-trigger:discord:interaction',
     integrationId: 'discord',
@@ -151,3 +149,14 @@ export const NODES: NodeDefinition[] = [
     ],
   },
 ];
+
+export default defineNodePack({
+  id: 'discord',
+  name: 'Discord',
+  version: '0.1.0',
+  entries: NODES.map((definition) => ({
+    definition,
+    executor: defineStubExecutor(definition),
+  })),
+  integrations: [DEFINITION],
+});

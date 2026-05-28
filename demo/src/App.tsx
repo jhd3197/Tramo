@@ -9,6 +9,16 @@ import {
 } from 'tramo-spec';
 import { AgentChat, Canvas, RightRail, useWorkflow, type FlowRef, type NodeRunStatus } from 'tramo/react';
 import { BUILTIN_PACK, combinePacks, run, type RunEvent } from 'tramo-runtime';
+import GMAIL from '@tramo/gmail';
+import GITHUB from '@tramo/github';
+import TELEGRAM from '@tramo/telegram';
+import DISCORD from '@tramo/discord';
+import NOTION from '@tramo/notion';
+import OPENAI from '@tramo/openai';
+import ANTHROPIC from '@tramo/anthropic';
+import LINEAR from '@tramo/linear';
+import AIRTABLE from '@tramo/airtable';
+import STRIPE from '@tramo/stripe';
 import { SAMPLE_DOC, SUBFLOW_DOUBLER, SUBFLOW_GREETER } from './sample.js';
 
 /* Demo-only sub-flow catalog. A real host might persist these to a
@@ -41,10 +51,18 @@ export function App() {
   const [running, setRunning] = useState(false);
   const [runResults, setRunResults] = useState<Record<string, unknown>>({});
 
-  // Pack-based loading: extending the demo with a Slack/Postgres/etc.
-  // pack would mean adding it to this array. The editor and the runtime
-  // consume the two derived registries below.
-  const { nodes, executors } = useMemo(() => combinePacks([BUILTIN_PACK]), []);
+  // Pack-based loading: each brand integration is its own @tramo/<brand>
+  // npm package. Add or remove from this array to change which tiles show
+  // up in the picker. The editor and runtime each derive their registry
+  // from the combined set.
+  const { nodes, executors } = useMemo(
+    () => combinePacks([
+      BUILTIN_PACK,
+      GMAIL, GITHUB, TELEGRAM, DISCORD, NOTION,
+      OPENAI, ANTHROPIC, LINEAR, AIRTABLE, STRIPE,
+    ]),
+    [],
+  );
 
   const workflow = useWorkflow({
     registry: nodes,

@@ -1,15 +1,13 @@
 /**
- * Telegram integration pack.
- *
- * Bot-API based operations. All operations need a `botToken`; the chat
- * surface varies (group id, user id, channel @handle).
+ * @tramo/telegram — official Telegram bot-API integration pack.
  */
 
-import type { IntegrationDefinition, NodeDefinition } from '../types.js';
+import { defineNodePack, defineStubExecutor } from 'tramo-runtime';
+import type { IntegrationDefinition, NodeDefinition } from 'tramo-spec';
 
 const COLOR = '#26a5e4';
 
-export const DEFINITION: IntegrationDefinition = {
+const DEFINITION: IntegrationDefinition = {
   id: 'telegram',
   name: 'Telegram',
   description: 'Bot messages, photos, documents, polls, edits.',
@@ -18,7 +16,7 @@ export const DEFINITION: IntegrationDefinition = {
   category: 'Communication',
 };
 
-export const NODES: NodeDefinition[] = [
+const NODES: NodeDefinition[] = [
   {
     id: 'webhook-trigger:telegram:update',
     integrationId: 'telegram',
@@ -163,3 +161,14 @@ export const NODES: NodeDefinition[] = [
     ],
   },
 ];
+
+export default defineNodePack({
+  id: 'telegram',
+  name: 'Telegram',
+  version: '0.1.0',
+  entries: NODES.map((definition) => ({
+    definition,
+    executor: defineStubExecutor(definition),
+  })),
+  integrations: [DEFINITION],
+});

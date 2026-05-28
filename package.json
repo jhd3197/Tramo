@@ -6,19 +6,21 @@
   "type": "module",
   "workspaces": [
     "packages/*",
+    "packages/integrations/*",
     "demo"
   ],
   "scripts": {
-    "build": "npm run build -w tramo-spec && npm run build -w tramo && npm run build -w tramo-runtime && npm run build -w tramo-runtime-node && npm run build -w tramo-demo",
+    "build": "npm run build -w tramo-spec && npm run build -w tramo-runtime && npm run build -w tramo && npm run build -w tramo-runtime-node && npm run build:integrations && npm run build -w tramo-demo",
     "build:spec": "npm run build -w tramo-spec",
     "build:core": "npm run build -w tramo",
     "build:runtime": "npm run build -w tramo-runtime",
     "build:cli": "npm run build -w tramo-runtime-node",
+    "build:integrations": "npm run build -w @tramo/gmail -w @tramo/github -w @tramo/telegram -w @tramo/discord -w @tramo/notion -w @tramo/openai -w @tramo/anthropic -w @tramo/linear -w @tramo/airtable -w @tramo/stripe",
     "dev": "npm run dev --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "demo": "npm run dev -w tramo-demo",
     "cli": "node packages/tramo-runtime-node/dist/bin/tramo.js",
-    "clean": "node -e \"const fs=require('fs');['packages/tramo-spec/dist','packages/tramo/dist','packages/tramo-runtime/dist','packages/tramo-runtime-node/dist','demo/dist'].forEach(p=>fs.rmSync(p,{recursive:true,force:true}))\""
+    "clean": "node -e \"const fs=require('fs');['packages/tramo-spec/dist','packages/tramo/dist','packages/tramo-runtime/dist','packages/tramo-runtime-node/dist','demo/dist'].concat(['gmail','github','telegram','discord','notion','openai','anthropic','linear','airtable','stripe'].map(b=>`packages/integrations/${b}/dist`)).forEach(p=>fs.rmSync(p,{recursive:true,force:true}))\""
   },
   "author": "Juan Denis",
   "license": "MIT",

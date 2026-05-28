@@ -19,6 +19,7 @@ export {
   BUILTIN_PACK,
   combinePacks,
   defineNodePack,
+  defineStubExecutor,
   type CombinedRegistries,
   type DefineNodePackInput,
   type NodePack,

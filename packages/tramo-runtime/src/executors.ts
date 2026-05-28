@@ -677,120 +677,13 @@ const aiPrompt: NodeExecutor = {
 };
 
 /* ====================================================================== */
-/* integrations — brand-icon demo stubs                                     */
-/* ====================================================================== */
-
-/* Each integration operation is currently a stub: it logs and forwards a
- * shape that mirrors the real API response, so workflows can be built and
- * tested without credentials. Real implementations replace these one-by-
- * one without changing the operation id or config shape. */
-
-function makeIntegrationStub(id: string, label: string): NodeExecutor {
-  return {
-    id,
-    execute: (ctx) => {
-      ctx.log.info(`${label} (stub) — config:`, ctx.config);
-      return { out: { ok: true, stub: id, config: ctx.config, input: ctx.inputs.in } };
-    },
-  };
-}
-
-const githubExecutors: NodeExecutor[] = [
-  makeIntegrationStub('github-issue-create', 'github · create issue'),
-  makeIntegrationStub('github-issue-comment', 'github · comment'),
-  makeIntegrationStub('github-issue-close', 'github · close issue'),
-  makeIntegrationStub('github-pr-create', 'github · open pr'),
-  makeIntegrationStub('github-repo-star', 'github · star'),
-  makeIntegrationStub('github-dispatch', 'github · dispatch'),
-  makeIntegrationStub('github-release-create', 'github · create release'),
-  makeIntegrationStub('github-file-get', 'github · get file'),
-];
-
-const discordExecutors: NodeExecutor[] = [
-  makeIntegrationStub('discord-webhook-send', 'discord · send (webhook)'),
-  makeIntegrationStub('discord-webhook-embed', 'discord · embed'),
-  makeIntegrationStub('discord-thread-create', 'discord · thread'),
-  makeIntegrationStub('discord-bot-send', 'discord · send (bot)'),
-  makeIntegrationStub('discord-dm-send', 'discord · dm'),
-  makeIntegrationStub('discord-react', 'discord · react'),
-];
-
-const telegramExecutors: NodeExecutor[] = [
-  makeIntegrationStub('telegram-send-message', 'telegram · send'),
-  makeIntegrationStub('telegram-send-photo', 'telegram · photo'),
-  makeIntegrationStub('telegram-send-document', 'telegram · document'),
-  makeIntegrationStub('telegram-edit-message', 'telegram · edit'),
-  makeIntegrationStub('telegram-delete-message', 'telegram · delete'),
-  makeIntegrationStub('telegram-send-poll', 'telegram · poll'),
-];
-
-const notionExecutors: NodeExecutor[] = [
-  makeIntegrationStub('notion-page-create', 'notion · create page'),
-  makeIntegrationStub('notion-page-update', 'notion · update page'),
-  makeIntegrationStub('notion-page-get', 'notion · get page'),
-  makeIntegrationStub('notion-database-query', 'notion · query db'),
-  makeIntegrationStub('notion-block-append', 'notion · append blocks'),
-  makeIntegrationStub('notion-search', 'notion · search'),
-];
-
-const gmailExecutors: NodeExecutor[] = [
-  makeIntegrationStub('gmail-send', 'gmail · send'),
-  makeIntegrationStub('gmail-reply', 'gmail · reply'),
-  makeIntegrationStub('gmail-draft', 'gmail · draft'),
-  makeIntegrationStub('gmail-search', 'gmail · search'),
-  makeIntegrationStub('gmail-get', 'gmail · get'),
-  makeIntegrationStub('gmail-trash', 'gmail · trash'),
-  makeIntegrationStub('gmail-label-modify', 'gmail · labels'),
-];
-
-const openaiExecutors: NodeExecutor[] = [
-  makeIntegrationStub('openai-chat', 'openai · chat'),
-  makeIntegrationStub('openai-image', 'openai · image'),
-  makeIntegrationStub('openai-embed', 'openai · embed'),
-  makeIntegrationStub('openai-transcribe', 'openai · transcribe'),
-  makeIntegrationStub('openai-speech', 'openai · speech'),
-  makeIntegrationStub('openai-moderation', 'openai · moderation'),
-];
-
-const anthropicExecutors: NodeExecutor[] = [
-  makeIntegrationStub('anthropic-message', 'anthropic · message'),
-  makeIntegrationStub('anthropic-vision', 'anthropic · vision'),
-  makeIntegrationStub('anthropic-extract', 'anthropic · extract'),
-  makeIntegrationStub('anthropic-summarize', 'anthropic · summarize'),
-  makeIntegrationStub('anthropic-classify', 'anthropic · classify'),
-  makeIntegrationStub('anthropic-tool-use', 'anthropic · tool use'),
-];
-
-const linearExecutors: NodeExecutor[] = [
-  makeIntegrationStub('linear-issue-create', 'linear · create issue'),
-  makeIntegrationStub('linear-issue-comment', 'linear · comment'),
-  makeIntegrationStub('linear-issue-update', 'linear · update'),
-  makeIntegrationStub('linear-issue-search', 'linear · search'),
-  makeIntegrationStub('linear-project-create', 'linear · create project'),
-  makeIntegrationStub('linear-comment-list', 'linear · list comments'),
-];
-
-const airtableExecutors: NodeExecutor[] = [
-  makeIntegrationStub('airtable-record-create', 'airtable · create record'),
-  makeIntegrationStub('airtable-record-update', 'airtable · update record'),
-  makeIntegrationStub('airtable-record-get', 'airtable · get record'),
-  makeIntegrationStub('airtable-record-delete', 'airtable · delete record'),
-  makeIntegrationStub('airtable-list-records', 'airtable · list'),
-  makeIntegrationStub('airtable-record-find', 'airtable · find'),
-];
-
-const stripeExecutors: NodeExecutor[] = [
-  makeIntegrationStub('stripe-customer-create', 'stripe · create customer'),
-  makeIntegrationStub('stripe-charge-create', 'stripe · payment intent'),
-  makeIntegrationStub('stripe-subscription-create', 'stripe · subscription'),
-  makeIntegrationStub('stripe-refund-create', 'stripe · refund'),
-  makeIntegrationStub('stripe-invoice-create', 'stripe · invoice'),
-  makeIntegrationStub('stripe-checkout-session', 'stripe · checkout session'),
-];
-
-/* ====================================================================== */
 /* exports                                                                  */
 /* ====================================================================== */
+
+/* Brand-specific operation executors (Gmail, GitHub, Telegram, …) live in
+ * their own @tramo/<brand> packages now. Each ships a NodePack via
+ * defineNodePack; consumers compose them with BUILTIN_PACK at the app
+ * layer using combinePacks(). */
 
 export const BUILTIN_EXECUTORS: NodeExecutor[] = [
   manualTrigger,
@@ -818,16 +711,6 @@ export const BUILTIN_EXECUTORS: NodeExecutor[] = [
   flowOutput,
   callFlow,
   aiPrompt,
-  ...githubExecutors,
-  ...discordExecutors,
-  ...telegramExecutors,
-  ...notionExecutors,
-  ...gmailExecutors,
-  ...openaiExecutors,
-  ...anthropicExecutors,
-  ...linearExecutors,
-  ...airtableExecutors,
-  ...stripeExecutors,
 ];
 
 export const BUILTIN_EXECUTOR_REGISTRY: ExecutorRegistry = createExecutorRegistry(BUILTIN_EXECUTORS);

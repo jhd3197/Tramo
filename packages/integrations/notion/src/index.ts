@@ -1,15 +1,13 @@
 /**
- * Notion integration pack.
- *
- * Internal-integration token based. Database ids are the long hex from the
- * URL with dashes stripped or kept — Notion accepts both.
+ * @tramo/notion — official Notion integration pack.
  */
 
-import type { IntegrationDefinition, NodeDefinition } from '../types.js';
+import { defineNodePack, defineStubExecutor } from 'tramo-runtime';
+import type { IntegrationDefinition, NodeDefinition } from 'tramo-spec';
 
 const COLOR = '#000000';
 
-export const DEFINITION: IntegrationDefinition = {
+const DEFINITION: IntegrationDefinition = {
   id: 'notion',
   name: 'Notion',
   description: 'Pages, database rows, blocks, search.',
@@ -18,7 +16,7 @@ export const DEFINITION: IntegrationDefinition = {
   category: 'Productivity',
 };
 
-export const NODES: NodeDefinition[] = [
+const NODES: NodeDefinition[] = [
   {
     id: 'notion-page-create',
     integrationId: 'notion',
@@ -158,3 +156,14 @@ export const NODES: NodeDefinition[] = [
     ],
   },
 ];
+
+export default defineNodePack({
+  id: 'notion',
+  name: 'Notion',
+  version: '0.1.0',
+  entries: NODES.map((definition) => ({
+    definition,
+    executor: defineStubExecutor(definition),
+  })),
+  integrations: [DEFINITION],
+});
