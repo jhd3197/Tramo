@@ -1,13 +1,18 @@
 # tramo
 
-Workflow-document-of-truth visual editor primitives — the editor half of the [tramo](../../) project.
+Umbrella meta-package for [tramo](https://github.com/jhd3197/tramo). Install this and you get the editor, the spec, the reference runtime, and every first-party brand integration pack from a single `npm install tramo`.
 
-This package contains:
+```bash
+npm install tramo react react-dom
+```
 
-- **Core**: `WorkflowDoc` type, typed `Patch` union, pure `applyPatch`, query helpers, `BUILTIN_NODES` definitions.
-- **React** (`tramo/react`): `useWorkflow`, `WorkflowCanvas` (XYFlow wrapper), `NodeInspector`, `NodesPanel`, `RightRail`.
-- **Agent** (`tramo/agent`): JSON Schema for the patch union, Anthropic/OpenAI tool specs, runtime validators.
+```ts
+import { Canvas, RightRail, useWorkflow } from 'tramo';
+import { emptyDoc, BUILTIN_REGISTRY } from 'tramo/spec';
+import { run, BUILTIN_PACK, combinePacks } from 'tramo/runtime';
+import GMAIL from 'tramo/integrations/gmail';
+import GITHUB from 'tramo/integrations/github';
+import 'tramo/styles.css';
+```
 
-The runtime that *executes* a doc lives in [`tramo-runtime`](../tramo-runtime).
-
-See the [workspace README](../../README.md) for a quickstart and the full architecture.
+This is a thin re-export layer over the lower-level packages — server-only or fine-grained consumers can depend on `@tramo/editor`, `@tramo/runtime`, `tramo-spec`, and individual `@tramo/<brand>` packs directly to keep bundles tight. See the top-level [README](https://github.com/jhd3197/tramo) for the full embedding pitch.

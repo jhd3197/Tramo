@@ -1,0 +1,72 @@
+{
+  "name": "@tramo/editor",
+  "version": "0.1.0",
+  "description": "Visual node-editor for tramo workflows — React components and LLM-agent glue. Pairs with tramo-spec (the wire format) and tramo-runtime (the executor).",
+  "type": "module",
+  "exports": {
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js"
+    },
+    "./agent": {
+      "types": "./dist/agent/index.d.ts",
+      "import": "./dist/agent/index.js"
+    },
+    "./styles.css": "./dist/styles.css"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "build": "npm run build:ts && npm run build:css",
+    "build:ts": "tsc -p tsconfig.json",
+    "build:css": "sass src/react/styles/tramo.scss dist/styles.css --no-source-map --style=compressed",
+    "dev": "tsc -p tsconfig.json --watch",
+    "dev:css": "sass --watch src/react/styles/tramo.scss dist/styles.css",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "lucide-react": "^1.16.0",
+    "simple-icons": "^16.21.0",
+    "tramo-spec": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "sass": "^1.99.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "keywords": [
+    "workflow",
+    "node-editor",
+    "automation",
+    "n8n",
+    "zapier",
+    "ai",
+    "agent"
+  ],
+  "author": "Juan Denis",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}

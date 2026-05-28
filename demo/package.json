@@ -12,19 +12,7 @@
   "dependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "tramo": "0.1.0",
-    "tramo-runtime": "0.1.0",
-    "tramo-spec": "0.1.0",
-    "@tramo/gmail": "0.1.0",
-    "@tramo/github": "0.1.0",
-    "@tramo/telegram": "0.1.0",
-    "@tramo/discord": "0.1.0",
-    "@tramo/notion": "0.1.0",
-    "@tramo/openai": "0.1.0",
-    "@tramo/anthropic": "0.1.0",
-    "@tramo/linear": "0.1.0",
-    "@tramo/airtable": "0.1.0",
-    "@tramo/stripe": "0.1.0"
+    "tramo": "0.1.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

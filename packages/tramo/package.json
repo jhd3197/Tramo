@@ -1,18 +1,73 @@
 {
   "name": "tramo",
   "version": "0.1.0",
-  "description": "Visual node-editor for tramo workflows — React components and LLM-agent glue. Pairs with tramo-spec (the wire format) and tramo-runtime (the executor).",
+  "description": "Embeddable workflow editor + runtime. Umbrella meta-package re-exporting @tramo/editor, @tramo/spec, @tramo/runtime, and every first-party brand integration pack from one install.",
   "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
     "./react": {
-      "types": "./dist/react/index.d.ts",
-      "import": "./dist/react/index.js"
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
     },
     "./agent": {
-      "types": "./dist/agent/index.d.ts",
-      "import": "./dist/agent/index.js"
+      "types": "./dist/agent.d.ts",
+      "import": "./dist/agent.js"
     },
-    "./styles.css": "./dist/styles.css"
+    "./spec": {
+      "types": "./dist/spec.d.ts",
+      "import": "./dist/spec.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
+    },
+    "./styles.css": "./dist/styles.css",
+    "./integrations/gmail": {
+      "types": "./dist/integrations/gmail.d.ts",
+      "import": "./dist/integrations/gmail.js"
+    },
+    "./integrations/github": {
+      "types": "./dist/integrations/github.d.ts",
+      "import": "./dist/integrations/github.js"
+    },
+    "./integrations/telegram": {
+      "types": "./dist/integrations/telegram.d.ts",
+      "import": "./dist/integrations/telegram.js"
+    },
+    "./integrations/discord": {
+      "types": "./dist/integrations/discord.d.ts",
+      "import": "./dist/integrations/discord.js"
+    },
+    "./integrations/notion": {
+      "types": "./dist/integrations/notion.d.ts",
+      "import": "./dist/integrations/notion.js"
+    },
+    "./integrations/openai": {
+      "types": "./dist/integrations/openai.d.ts",
+      "import": "./dist/integrations/openai.js"
+    },
+    "./integrations/anthropic": {
+      "types": "./dist/integrations/anthropic.d.ts",
+      "import": "./dist/integrations/anthropic.js"
+    },
+    "./integrations/linear": {
+      "types": "./dist/integrations/linear.d.ts",
+      "import": "./dist/integrations/linear.js"
+    },
+    "./integrations/airtable": {
+      "types": "./dist/integrations/airtable.d.ts",
+      "import": "./dist/integrations/airtable.js"
+    },
+    "./integrations/stripe": {
+      "types": "./dist/integrations/stripe.d.ts",
+      "import": "./dist/integrations/stripe.js"
+    }
   },
   "files": [
     "dist",
@@ -24,45 +79,42 @@
     "react-dom": "^18.0.0 || ^19.0.0"
   },
   "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    },
-    "react-dom": {
-      "optional": true
-    }
+    "react": { "optional": true },
+    "react-dom": { "optional": true }
   },
   "scripts": {
     "build": "npm run build:ts && npm run build:css",
     "build:ts": "tsc -p tsconfig.json",
-    "build:css": "sass src/react/styles/tramo.scss dist/styles.css --no-source-map --style=compressed",
-    "dev": "tsc -p tsconfig.json --watch",
-    "dev:css": "sass --watch src/react/styles/tramo.scss dist/styles.css",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "build:css": "node -e \"const fs=require('fs');fs.mkdirSync('dist',{recursive:true});fs.copyFileSync('src/styles.css','dist/styles.css');\"",
+    "dev": "tsc -p tsconfig.json --watch"
   },
   "dependencies": {
-    "lucide-react": "^1.16.0",
-    "simple-icons": "^16.21.0",
-    "tramo-spec": "0.1.0"
+    "tramo-spec": "0.1.0",
+    "tramo-runtime": "0.1.0",
+    "@tramo/editor": "0.1.0",
+    "@tramo/gmail": "0.1.0",
+    "@tramo/github": "0.1.0",
+    "@tramo/telegram": "0.1.0",
+    "@tramo/discord": "0.1.0",
+    "@tramo/notion": "0.1.0",
+    "@tramo/openai": "0.1.0",
+    "@tramo/anthropic": "0.1.0",
+    "@tramo/linear": "0.1.0",
+    "@tramo/airtable": "0.1.0",
+    "@tramo/stripe": "0.1.0"
   },
   "devDependencies": {
-    "@types/node": "^20.11.0",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "sass": "^1.99.0",
-    "typescript": "^5.4.0",
-    "vitest": "^1.6.0"
+    "typescript": "^5.4.0"
   },
   "keywords": [
     "workflow",
     "node-editor",
     "automation",
-    "n8n",
-    "zapier",
+    "embeddable",
+    "react",
     "ai",
-    "agent"
+    "agent",
+    "grapesjs-style"
   ],
   "author": "Juan Denis",
   "license": "MIT",

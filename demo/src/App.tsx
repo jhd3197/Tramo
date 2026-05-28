@@ -6,19 +6,19 @@ import {
   newNodeId,
   type Patch,
   type WorkflowDoc,
-} from 'tramo-spec';
+} from 'tramo/spec';
 import { AgentChat, Canvas, RightRail, useWorkflow, type FlowRef, type NodeRunStatus } from 'tramo/react';
-import { BUILTIN_PACK, combinePacks, run, type RunEvent } from 'tramo-runtime';
-import GMAIL from '@tramo/gmail';
-import GITHUB from '@tramo/github';
-import TELEGRAM from '@tramo/telegram';
-import DISCORD from '@tramo/discord';
-import NOTION from '@tramo/notion';
-import OPENAI from '@tramo/openai';
-import ANTHROPIC from '@tramo/anthropic';
-import LINEAR from '@tramo/linear';
-import AIRTABLE from '@tramo/airtable';
-import STRIPE from '@tramo/stripe';
+import { BUILTIN_PACK, combinePacks, run, type RunEvent } from 'tramo/runtime';
+import GMAIL from 'tramo/integrations/gmail';
+import GITHUB from 'tramo/integrations/github';
+import TELEGRAM from 'tramo/integrations/telegram';
+import DISCORD from 'tramo/integrations/discord';
+import NOTION from 'tramo/integrations/notion';
+import OPENAI from 'tramo/integrations/openai';
+import ANTHROPIC from 'tramo/integrations/anthropic';
+import LINEAR from 'tramo/integrations/linear';
+import AIRTABLE from 'tramo/integrations/airtable';
+import STRIPE from 'tramo/integrations/stripe';
 import { SAMPLE_DOC, SUBFLOW_DOUBLER, SUBFLOW_GREETER } from './sample.js';
 
 /* Demo-only sub-flow catalog. A real host might persist these to a
