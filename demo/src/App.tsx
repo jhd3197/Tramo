@@ -34,6 +34,36 @@ const DEMO_FLOW_REFS: FlowRef[] = [
 ];
 
 const STORAGE_KEY = 'tramo:demo:doc';
+const PACKS_STORAGE_KEY = 'tramo:demo:enabled-packs';
+
+/* All toggleable brand packs. BUILTIN_PACK is always on; only these
+ * are exposed in the picker so users can shrink the palette to what
+ * they care about. */
+const BRAND_PACKS = [
+  { id: 'gmail',     name: 'Gmail',     pack: GMAIL },
+  { id: 'github',    name: 'GitHub',    pack: GITHUB },
+  { id: 'telegram',  name: 'Telegram',  pack: TELEGRAM },
+  { id: 'discord',   name: 'Discord',   pack: DISCORD },
+  { id: 'notion',    name: 'Notion',    pack: NOTION },
+  { id: 'openai',    name: 'OpenAI',    pack: OPENAI },
+  { id: 'anthropic', name: 'Anthropic', pack: ANTHROPIC },
+  { id: 'linear',    name: 'Linear',    pack: LINEAR },
+  { id: 'airtable',  name: 'Airtable',  pack: AIRTABLE },
+  { id: 'stripe',    name: 'Stripe',    pack: STRIPE },
+] as const;
+
+function loadEnabledPacks(): Set<string> {
+  try {
+    const raw = localStorage.getItem(PACKS_STORAGE_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw) as string[];
+      if (Array.isArray(arr)) return new Set(arr);
+    }
+  } catch {
+    // fall through
+  }
+  return new Set(BRAND_PACKS.map((p) => p.id));
+}
 
 function loadInitialDoc(): WorkflowDoc {
   try {
@@ -50,19 +80,34 @@ export function App() {
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [running, setRunning] = useState(false);
   const [runResults, setRunResults] = useState<Record<string, unknown>>({});
+  const [enabledPacks, setEnabledPacks] = useState<Set<string>>(loadEnabledPacks);
+  const [packPickerOpen, setPackPickerOpen] = useState(false);
 
   // Pack-based loading: each brand integration is its own @tramo/<brand>
-  // npm package. Add or remove from this array to change which tiles show
-  // up in the picker. The editor and runtime each derive their registry
-  // from the combined set.
+  // npm package. The Packs button in the header lets users toggle which
+  // brand tiles are loaded — the editor and runtime each derive their
+  // registry from the combined set, so unchecking Stripe removes both the
+  // tile and the executor with no other plumbing.
   const { nodes, executors } = useMemo(
     () => combinePacks([
       BUILTIN_PACK,
-      GMAIL, GITHUB, TELEGRAM, DISCORD, NOTION,
-      OPENAI, ANTHROPIC, LINEAR, AIRTABLE, STRIPE,
+      ...BRAND_PACKS.filter((p) => enabledPacks.has(p.id)).map((p) => p.pack),
     ]),
-    [],
+    [enabledPacks],
   );
+
+  const toggleBrandPack = useCallback((id: string) => {
+    setEnabledPacks((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      try {
+        localStorage.setItem(PACKS_STORAGE_KEY, JSON.stringify(Array.from(next)));
+      } catch {
+        // ignore quota errors
+      }
+      return next;
+    });
+  }, []);
 
   const workflow = useWorkflow({
     registry: nodes,
@@ -170,6 +215,23 @@ export function App() {
           >
             ↷ Redo
           </button>
+          <div className="demo-packs">
+            <button
+              type="button"
+              className="tr-btn tr-btn--ghost"
+              onClick={() => setPackPickerOpen((o) => !o)}
+              title="Toggle which integration packs are loaded"
+            >
+              ⚙ Packs ({enabledPacks.size}/{BRAND_PACKS.length})
+            </button>
+            {packPickerOpen ? (
+              <PackPicker
+                enabled={enabledPacks}
+                onToggle={toggleBrandPack}
+                onClose={() => setPackPickerOpen(false)}
+              />
+            ) : null}
+          </div>
           <button type="button" className="tr-btn tr-btn--ghost" onClick={loadExample}>
             Load example
           </button>
@@ -213,6 +275,53 @@ export function App() {
         />
       </div>
     </div>
+  );
+}
+
+/* ====================================================================== */
+/* Pack picker — toggle which brand integration packs are loaded            */
+/* ====================================================================== */
+
+function PackPicker({
+  enabled,
+  onToggle,
+  onClose,
+}: {
+  enabled: Set<string>;
+  onToggle: (id: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <div className="demo-packs__scrim" onClick={onClose} />
+      <div className="demo-packs__panel" onClick={(e) => e.stopPropagation()}>
+        <div className="demo-packs__head">Integration packs</div>
+        <div className="demo-packs__hint">
+          Each brand ships as its own <code>@tramo/&lt;brand&gt;</code> npm package.
+          Toggle off to drop the tile from the picker and the executor from the
+          runtime — bundle drops it too in a real app.
+        </div>
+        <ul className="demo-packs__list">
+          {BRAND_PACKS.map((p) => {
+            const on = enabled.has(p.id);
+            const opCount = p.pack.entries.length;
+            return (
+              <li key={p.id}>
+                <label className="demo-packs__row">
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() => onToggle(p.id)}
+                  />
+                  <span className="demo-packs__name">{p.name}</span>
+                  <span className="demo-packs__count">{opCount} ops</span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </>
   );
 }
 
