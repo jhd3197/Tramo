@@ -124,10 +124,56 @@ export function Canvas({
     [applyPatch],
   );
 
-  /* ---------- pan & zoom ---------- */
+  /* ---------- pan & zoom ----------
+   *
+   * Gesture model:
+   *   - 1 active pointer  → pan (one-finger drag on touch, primary-button
+   *     drag on mouse).
+   *   - 2+ active pointers → pinch-zoom + midpoint pan. We pin the world
+   *     point that was under the *initial* midpoint so it stays under the
+   *     *current* midpoint — spreading-without-moving zooms in place,
+   *     translating-without-spreading pans cleanly, both combined "just
+   *     work" without separate code paths.
+   *   - When the active count drops 2→1 we enter a "locked" mode so the
+   *     remaining finger doesn't snap into a single-finger pan with a
+   *     stale anchor. Lock clears on full release.
+   *
+   * Mouse keeps `e.button === 0` filtering so middle-click / right-click
+   * aren't hijacked.
+   */
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState({ x: 0, y: 0, zoom: 1 });
-  const panState = useRef<{ startX: number; startY: number; vx: number; vy: number } | null>(null);
+
+  type GestureMode = 'idle' | 'pan' | 'pinch' | 'locked';
+  interface PanSnapshot {
+    pointerId: number;
+    startX: number;
+    startY: number;
+    vx: number;
+    vy: number;
+  }
+  interface PinchSnapshot {
+    distance: number;
+    midX: number;
+    midY: number;
+    vx: number;
+    vy: number;
+    vzoom: number;
+  }
+  const gestureRef = useRef<{
+    mode: GestureMode;
+    pointers: Map<number, { x: number; y: number }>;
+    pan: PanSnapshot | null;
+    pinch: PinchSnapshot | null;
+  }>({ mode: 'idle', pointers: new Map(), pan: null, pinch: null });
+
+  /** Convert client coords to wrapper-local pixels. */
+  const wrapperLocal = useCallback((clientX: number, clientY: number) => {
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    return rect
+      ? { x: clientX - rect.left, y: clientY - rect.top }
+      : { x: clientX, y: clientY };
+  }, []);
 
   /** Zoom around a focal point in wrapper-local pixels. Pins the world
    *  point under (focalX, focalY) so it stays under the cursor / pinch
@@ -178,29 +224,101 @@ export function Canvas({
    * closes over it. */
 
   const onPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    // Only pan when clicking the canvas background. Anything interactive
-    // (node, plus, popover) handles its own pointer events; capturing here
-    // would steal the click before it reaches them.
+    // Only start a gesture when the pointer lands on the canvas background.
+    // Interactive children (nodes, plus buttons, popover, toolbar) handle
+    // their own events; capturing here would steal the click.
     const target = e.target as HTMLElement;
     if (target.closest('.tr-node-v2, .tr-plus, .tr-popover, .tr-popover-scrim, .tr-empty, .tr-canvas-controls')) return;
-    if (e.button !== 0) return;
-    clearSelection();
-    panState.current = { startX: e.clientX, startY: e.clientY, vx: view.x, vy: view.y };
+    // Mouse: only primary button. Touch/pen always report button 0.
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+    const g = gestureRef.current;
+    const local = wrapperLocal(e.clientX, e.clientY);
+    g.pointers.set(e.pointerId, local);
     (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
-  }, [clearSelection, view.x, view.y]);
+
+    if (g.pointers.size === 1) {
+      clearSelection();
+      g.mode = 'pan';
+      g.pan = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        vx: view.x,
+        vy: view.y,
+      };
+      g.pinch = null;
+    } else if (g.pointers.size === 2) {
+      // Upgrade pan → pinch. Snapshot baseline using the two current
+      // pointer positions and the *current* view (not pan-start view).
+      const pts = Array.from(g.pointers.values());
+      const dx = pts[1].x - pts[0].x;
+      const dy = pts[1].y - pts[0].y;
+      g.mode = 'pinch';
+      g.pan = null;
+      g.pinch = {
+        distance: Math.max(1, Math.hypot(dx, dy)),
+        midX: (pts[0].x + pts[1].x) / 2,
+        midY: (pts[0].y + pts[1].y) / 2,
+        vx: view.x,
+        vy: view.y,
+        vzoom: view.zoom,
+      };
+    }
+    // 3+ pointers: ignore the extras; pinch keeps using its baseline.
+  }, [clearSelection, view.x, view.y, view.zoom, wrapperLocal]);
 
   const onPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    const s = panState.current;
-    if (!s) return;
-    setView((v) => ({ ...v, x: s.vx + (e.clientX - s.startX), y: s.vy + (e.clientY - s.startY) }));
-  }, []);
+    const g = gestureRef.current;
+    if (!g.pointers.has(e.pointerId)) return;
+    g.pointers.set(e.pointerId, wrapperLocal(e.clientX, e.clientY));
 
-  const endPan = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    panState.current = null;
+    if (g.mode === 'pan' && g.pan && g.pan.pointerId === e.pointerId) {
+      const s = g.pan;
+      setView((v) => ({ ...v, x: s.vx + (e.clientX - s.startX), y: s.vy + (e.clientY - s.startY) }));
+    } else if (g.mode === 'pinch' && g.pinch) {
+      const pts = Array.from(g.pointers.values()).slice(0, 2);
+      if (pts.length < 2) return;
+      const dx = pts[1].x - pts[0].x;
+      const dy = pts[1].y - pts[0].y;
+      const d = Math.max(1, Math.hypot(dx, dy));
+      const mx = (pts[0].x + pts[1].x) / 2;
+      const my = (pts[0].y + pts[1].y) / 2;
+      const s = g.pinch;
+      const factor = d / s.distance;
+      const nextZoom = clamp(s.vzoom * factor, minZoom, maxZoom);
+      // World point that was under the initial midpoint at gesture start.
+      const worldX = (s.midX - s.vx) / s.vzoom;
+      const worldY = (s.midY - s.vy) / s.vzoom;
+      // Pin that world point under the current midpoint at the new zoom.
+      setView({
+        zoom: nextZoom,
+        x: mx - worldX * nextZoom,
+        y: my - worldY * nextZoom,
+      });
+    }
+  }, [maxZoom, minZoom, wrapperLocal]);
+
+  const endGesturePointer = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    const g = gestureRef.current;
+    if (!g.pointers.has(e.pointerId)) return;
+    g.pointers.delete(e.pointerId);
     try {
       (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
     } catch {
       // pointer was never captured, fine
+    }
+
+    if (g.pointers.size === 0) {
+      g.mode = 'idle';
+      g.pan = null;
+      g.pinch = null;
+    } else if (g.pointers.size === 1 && g.mode === 'pinch') {
+      // Don't snap into single-finger pan — the remaining finger's anchor
+      // would teleport. Stay locked until full release.
+      g.mode = 'locked';
+      g.pan = null;
+      g.pinch = null;
     }
   }, []);
 
@@ -516,8 +634,8 @@ export function Canvas({
       className={`tr-canvas-v2${panning ? ' tr-canvas-v2--panning' : ''}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={endPan}
-      onPointerCancel={endPan}
+      onPointerUp={endGesturePointer}
+      onPointerCancel={endGesturePointer}
       onWheel={onWheel}
     >
       <div className="tr-canvas-v2__world" style={transformStyle}>
