@@ -249,14 +249,16 @@ function FieldRow({
       return (
         <div className="tr-field">
           {label}
-          <textarea
+          <PickerTextField
+            tag="textarea"
             id={id}
-            className="tr-input tr-input--code"
             value={String(value ?? '')}
+            onLocalChange={(v) => onLocalChange(v)}
+            onCommit={(v) => onCommit(v)}
             rows={6}
-            spellCheck={false}
-            onChange={(e) => onLocalChange(e.target.value)}
-            onBlur={(e) => onCommit(e.target.value)}
+            className="tr-input tr-input--code"
+            suggestions={varSuggestions}
+            insertMode="js"
           />
           {help}
         </div>
@@ -405,6 +407,8 @@ function FieldRow({
 /* PickerTextField — input/textarea that opens a {{var}} picker on "/"     */
 /* ====================================================================== */
 
+type InsertMode = 'template' | 'js';
+
 type PickerTextFieldProps = {
   tag: 'input' | 'textarea';
   id: string;
@@ -415,6 +419,12 @@ type PickerTextFieldProps = {
   rows?: number;
   type?: string;
   suggestions: VarSuggestion[];
+  /**
+   * How to render an inserted suggestion. 'template' wraps in `{{...}}`
+   * for renderTemplate fields; 'js' inserts a bare JS expression
+   * (`input.foo` or `vars.NAME`) for the JS Transform / If condition.
+   */
+  insertMode?: InsertMode;
 };
 
 function PickerTextField({
@@ -427,16 +437,31 @@ function PickerTextField({
   rows,
   type,
   suggestions,
+  insertMode = 'template',
 }: PickerTextFieldProps) {
   const ref = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
-  /** Cursor index of the "/" that opened the picker. null when closed. */
-  const [slashAt, setSlashAt] = useState<number | null>(null);
+  /**
+   * Picker open-state. `null` means closed. When opened by "/" we track
+   * the slash index so we can replace `/query` on pick. When opened by
+   * the button we just remember the caret to insert at.
+   */
+  const [pickerState, setPickerState] = useState<
+    | { source: 'slash'; slashAt: number; caret: number }
+    | { source: 'button'; caret: number }
+    | null
+  >(null);
   const [anchor, setAnchor] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
   const [query, setQuery] = useState('');
 
-  const open = useMemo(() => slashAt !== null && suggestions.length > 0, [slashAt, suggestions]);
+  const open = useMemo(
+    () => pickerState !== null && suggestions.length > 0,
+    [pickerState, suggestions],
+  );
 
-  const close = useCallback(() => setSlashAt(null), []);
+  const close = useCallback(() => {
+    setPickerState(null);
+    setQuery('');
+  }, []);
 
   const updateAnchorFromCaret = useCallback(() => {
     const el = ref.current;
@@ -450,52 +475,71 @@ function PickerTextField({
   const handleChange = useCallback(
     (next: string, caret: number) => {
       onLocalChange(next);
-      if (slashAt === null) {
-        // Open when the user types a "/" preceded by start or whitespace.
+      if (pickerState === null) {
+        // Slash-open is disabled in JS mode — `/` is the divide operator,
+        // it would be in the way. Users open the picker via the button.
+        if (insertMode === 'js') return;
         const ch = next[caret - 1];
         if (ch === '/') {
           const prev = next[caret - 2];
           const ok = caret === 1 || prev === ' ' || prev === '\n' || prev === '\t';
           if (ok && suggestions.length > 0) {
-            setSlashAt(caret - 1);
+            setPickerState({ source: 'slash', slashAt: caret - 1, caret });
             setQuery('');
             updateAnchorFromCaret();
           }
         }
         return;
       }
-      // Picker is open — update the query string.
-      if (caret <= slashAt) {
+      if (pickerState.source !== 'slash') return; // button-opened picker doesn't filter via typing
+      if (caret <= pickerState.slashAt) {
         close();
         return;
       }
-      const segment = next.slice(slashAt + 1, caret);
-      // Bail out if user typed a space or another slash → close.
+      const segment = next.slice(pickerState.slashAt + 1, caret);
       if (segment.includes(' ') || segment.includes('\n') || segment.includes('/')) {
         close();
         return;
       }
       setQuery(segment);
     },
-    [onLocalChange, slashAt, suggestions.length, updateAnchorFromCaret, close],
+    [onLocalChange, pickerState, suggestions.length, updateAnchorFromCaret, close, insertMode],
+  );
+
+  const formatInsert = useCallback(
+    (s: VarSuggestion): string => {
+      if (insertMode === 'js') {
+        // suggestions for upstream nodes have paths like `data.name`
+        // (relative to `input`). Vars come in as `vars.NAME`.
+        return s.path.startsWith('vars.') ? s.path : `input.${s.path}`;
+      }
+      return `{{${s.path}}}`;
+    },
+    [insertMode],
   );
 
   const pick = useCallback(
     (s: VarSuggestion) => {
       const el = ref.current;
-      if (!el || slashAt === null) {
+      if (!el || pickerState === null) {
         close();
         return;
       }
-      const caret = el.selectionStart ?? value.length;
-      const before = value.slice(0, slashAt);
-      const after = value.slice(caret);
-      const insert = `{{${s.path}}}`;
+      const insert = formatInsert(s);
+      let before: string;
+      let after: string;
+      if (pickerState.source === 'slash') {
+        const caret = el.selectionStart ?? value.length;
+        before = value.slice(0, pickerState.slashAt);
+        after = value.slice(caret);
+      } else {
+        before = value.slice(0, pickerState.caret);
+        after = value.slice(pickerState.caret);
+      }
       const next = before + insert + after;
       onLocalChange(next);
       onCommit(next);
       close();
-      // Restore caret just after the inserted chip.
       requestAnimationFrame(() => {
         const pos = before.length + insert.length;
         try {
@@ -506,7 +550,7 @@ function PickerTextField({
         }
       });
     },
-    [close, onCommit, onLocalChange, slashAt, value],
+    [close, onCommit, onLocalChange, pickerState, value, formatInsert],
   );
 
   const onInput = useCallback(
@@ -520,11 +564,10 @@ function PickerTextField({
 
   const onBlur = useCallback(
     (e: FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      // Don't commit if the picker is intercepting the focus shift.
-      if (slashAt !== null) return;
+      if (pickerState !== null) return;
       onCommit(e.target.value);
     },
-    [onCommit, slashAt],
+    [onCommit, pickerState],
   );
 
   const sharedKeyDown = (e: KeyboardEvent) => {
@@ -536,14 +579,25 @@ function PickerTextField({
         e.key === 'Tab' ||
         e.key === 'Escape')
     ) {
-      // VarPicker handles these on window, but Enter in a textarea would
-      // insert a newline before its preventDefault fires. Stop it here too.
       e.preventDefault();
     }
   };
 
+  const onButtonClick = useCallback(() => {
+    if (pickerState !== null) {
+      close();
+      return;
+    }
+    if (suggestions.length === 0) return;
+    const el = ref.current;
+    const caret = el?.selectionStart ?? value.length;
+    setPickerState({ source: 'button', caret });
+    setQuery('');
+    updateAnchorFromCaret();
+  }, [pickerState, close, suggestions.length, value.length, updateAnchorFromCaret]);
+
   return (
-    <>
+    <div className="tr-picker-wrap">
       {tag === 'textarea' ? (
         <textarea
           id={id}
@@ -567,6 +621,24 @@ function PickerTextField({
           onKeyDown={sharedKeyDown}
         />
       )}
+      <button
+        type="button"
+        className="tr-picker-btn"
+        onClick={onButtonClick}
+        // The mousedown→focus→blur sequence would commit the field draft
+        // before our click handler runs. Suppressing focus shift keeps
+        // the value stable so insertion math stays correct.
+        onMouseDown={(e) => e.preventDefault()}
+        disabled={suggestions.length === 0}
+        title={
+          suggestions.length === 0
+            ? 'Connect an upstream node or add a Set Variable to use variables here.'
+            : 'Insert a variable'
+        }
+        aria-label="Insert variable"
+      >
+        + var
+      </button>
       {open ? (
         <VarPicker
           suggestions={suggestions}
@@ -576,7 +648,7 @@ function PickerTextField({
           onClose={close}
         />
       ) : null}
-    </>
+    </div>
   );
 }
 

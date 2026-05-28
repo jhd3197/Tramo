@@ -5,5 +5,6 @@
  */
 export { runCommand, type RunOptions } from './run.js';
 export { validateCommand, type ValidateOptions } from './validate.js';
+export { serveCommand, type ServeOptions } from './serve.js';
 export { processIO, type CommandIO } from './io.js';
 export { makeFormatter, type Formatter } from './format.js';

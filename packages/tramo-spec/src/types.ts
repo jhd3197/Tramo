@@ -193,6 +193,7 @@ export type NodeCategory =
   | 'action'
   | 'transform'
   | 'logic'
+  | 'state'
   | 'ai'
   | 'io';
 
@@ -216,4 +217,36 @@ export interface NodeDefinition {
   fields: NodeField[];
   /** Accent color (hex) — used on the canvas node's top stripe. Optional. */
   color?: string;
+  /** When set, this node is an *operation* belonging to an integration pack
+   *  (e.g. `github`, `discord`). The picker groups operations under their
+   *  integration tile; the runtime is unaffected. */
+  integrationId?: string;
+  /** Short label shown for this operation inside its integration drill-in.
+   *  Falls back to `name` when unset — useful when the parent integration
+   *  already implies the brand (e.g. "Create issue" instead of "GitHub: Create issue"). */
+  operationName?: string;
+}
+
+/**
+ * IntegrationDefinition — a "pack" that bundles multiple operations under
+ * one brand (GitHub, Discord, Telegram, …). The pack itself doesn't run;
+ * its `nodes` are the things added to the workflow.
+ *
+ * The shape is intentionally JSON-friendly so an LLM can be handed a third-
+ * party API doc + this schema and emit a new pack file in one shot.
+ */
+export interface IntegrationDefinition {
+  /** Stable slug used as NodeDefinition.integrationId, e.g. 'github'. */
+  id: string;
+  /** Display name for the tile, e.g. 'GitHub'. */
+  name: string;
+  /** One-line tagline rendered under the tile name. */
+  description: string;
+  /** simple-icons slug (preferred) or a lucide name via `icon`. */
+  iconBrand?: string;
+  icon?: string;
+  /** Accent color (hex). Optional; falls back to the operation's color. */
+  color?: string;
+  /** Coarse picker grouping, e.g. 'Communication', 'Developer', 'Productivity'. */
+  category?: string;
 }

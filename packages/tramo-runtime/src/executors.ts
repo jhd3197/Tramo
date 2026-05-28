@@ -67,7 +67,7 @@ const cronTrigger: NodeExecutor = {
 const httpRequest: NodeExecutor = {
   id: 'http-request',
   execute: async (ctx) => {
-    const url = renderTemplate(String(ctx.config.url ?? ''), ctx.inputs.in);
+    const url = renderTemplate(String(ctx.config.url ?? ''), ctx.inputs.in, ctx.vars);
     const method = String(ctx.config.method ?? 'GET');
     const headers = parseMaybeJson(ctx.config.headers) ?? {};
     const bodyRaw = ctx.config.body;
@@ -107,6 +107,60 @@ const httpRequest: NodeExecutor = {
   },
 };
 
+const httpRespond: NodeExecutor = {
+  id: 'http-respond',
+  execute: (ctx) => {
+    const status = Number(ctx.config.status ?? 200);
+    const bodyMode = String(ctx.config.bodyMode ?? 'json');
+    const bodyRendered = renderTemplate(String(ctx.config.body ?? ''), ctx.inputs.in, ctx.vars);
+    const extraHeaders = (parseMaybeJson(ctx.config.headers) ?? {}) as Record<string, string>;
+
+    let body: unknown;
+    const headers: Record<string, string> = { ...extraHeaders };
+    if (bodyMode === 'json') {
+      try {
+        body = bodyRendered.trim() === '' ? null : JSON.parse(bodyRendered);
+      } catch (err) {
+        throw new Error(`http-respond: body is not valid JSON after rendering: ${(err as Error).message}`);
+      }
+      if (!headers['content-type'] && !headers['Content-Type']) {
+        headers['content-type'] = 'application/json';
+      }
+    } else {
+      body = bodyRendered;
+      if (!headers['content-type'] && !headers['Content-Type']) {
+        headers['content-type'] = 'text/plain; charset=utf-8';
+      }
+    }
+
+    const response = { status, body, headers };
+    ctx.log.info(`responding ${status} (${bodyMode})`);
+    return { response, out: ctx.inputs.in };
+  },
+};
+
+const delay: NodeExecutor = {
+  id: 'delay',
+  execute: (ctx) =>
+    new Promise((resolve, reject) => {
+      const ms = Math.max(0, Number(ctx.config.ms ?? 0));
+      if (ctx.signal.aborted) {
+        reject(new Error('delay: aborted before starting'));
+        return;
+      }
+      const timer = setTimeout(() => {
+        ctx.signal.removeEventListener('abort', onAbort);
+        resolve({ out: ctx.inputs.in });
+      }, ms);
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(new Error('delay: aborted'));
+      };
+      ctx.signal.addEventListener('abort', onAbort, { once: true });
+      ctx.log.info(`waiting ${ms}ms`);
+    }),
+};
+
 const log: NodeExecutor = {
   id: 'log',
   execute: (ctx) => {
@@ -127,12 +181,13 @@ const jsTransform: NodeExecutor = {
   id: 'js-transform',
   execute: (ctx) => {
     const expression = String(ctx.config.expression ?? 'return input;');
-    const fn = new Function('input', 'config', 'console', expression) as (
+    const fn = new Function('input', 'vars', 'config', 'console', expression) as (
       input: unknown,
+      vars: Record<string, unknown>,
       config: Record<string, unknown>,
       console: Console,
     ) => unknown;
-    const result = fn(ctx.inputs.in, ctx.config, makeScopedConsole(ctx));
+    const result = fn(ctx.inputs.in, ctx.vars, ctx.config, makeScopedConsole(ctx));
     return { out: result };
   },
 };
@@ -141,7 +196,7 @@ const template: NodeExecutor = {
   id: 'template',
   execute: (ctx) => {
     const tpl = String(ctx.config.template ?? '');
-    const rendered = renderTemplate(tpl, ctx.inputs.in);
+    const rendered = renderTemplate(tpl, ctx.inputs.in, ctx.vars);
     return { out: rendered };
   },
 };
@@ -205,6 +260,147 @@ const merge: NodeExecutor = {
   },
 };
 
+/* loop-start / loop-end are control-flow primitives — the runner's planning
+ * pass picks them up and runs the body subgraph itself. These stub executors
+ * exist so the pack registry stays exhaustive; if anything ever calls them
+ * directly it means the planning pass was bypassed and the user deserves a
+ * clear error rather than silent skipping. */
+const loopStartStub: NodeExecutor = {
+  id: 'loop-start',
+  execute: () => {
+    throw new Error(
+      'loop-start invoked directly — the runner handles loop pairing as a planning pre-pass; calling the executor manually is unsupported.',
+    );
+  },
+};
+
+const loopEndStub: NodeExecutor = {
+  id: 'loop-end',
+  execute: () => {
+    throw new Error(
+      'loop-end invoked directly — the runner synthesizes its output as part of the loop iteration; calling the executor manually is unsupported.',
+    );
+  },
+};
+
+const forEach: NodeExecutor = {
+  id: 'for-each',
+  execute: (ctx) => {
+    const sourceExpr = String(ctx.config.source ?? 'input').trim() || 'input';
+    const mode = String(ctx.config.mode ?? 'map');
+    const bodySrc = String(ctx.config.body ?? 'return item;');
+    const varName = String(ctx.config.varName ?? '').trim();
+
+    // Resolve the source array. `input` and `vars` are the same bindings
+    // exposed to JS Transform — keeping them consistent across nodes so
+    // users learn one mental model.
+    const resolveSource = new Function('input', 'vars', `return (${sourceExpr});`) as (
+      input: unknown,
+      vars: Record<string, unknown>,
+    ) => unknown;
+    let items: unknown;
+    try {
+      items = resolveSource(ctx.inputs.in, ctx.vars);
+    } catch (err) {
+      return { error: { message: `for-each: source expression failed: ${(err as Error).message}` } };
+    }
+    if (!Array.isArray(items)) {
+      return { error: { message: `for-each: source did not resolve to an array (got ${typeof items}).` } };
+    }
+
+    const body = new Function('item', 'index', 'input', 'vars', bodySrc) as (
+      item: unknown,
+      index: number,
+      input: unknown,
+      vars: Record<string, unknown>,
+    ) => unknown;
+
+    if (mode === 'reduce-into-var') {
+      if (!varName) {
+        return { error: { message: 'for-each: reduce-into-var requires a Target variable.' } };
+      }
+      if (!Array.isArray(ctx.vars[varName])) ctx.vars[varName] = [];
+    }
+
+    const collected: unknown[] = [];
+    for (let i = 0; i < items.length; i++) {
+      if (ctx.signal.aborted) {
+        ctx.log.warn(`for-each aborted at index ${i}`);
+        break;
+      }
+      const item = items[i];
+      let value: unknown;
+      try {
+        value = body(item, i, ctx.inputs.in, ctx.vars);
+      } catch (err) {
+        return { error: { message: `for-each body failed at index ${i}: ${(err as Error).message}` } };
+      }
+      if (mode === 'filter') {
+        if (value) collected.push(item);
+      } else if (mode === 'reduce-into-var') {
+        (ctx.vars[varName] as unknown[]).push(value);
+      } else {
+        // map (default)
+        collected.push(value);
+      }
+    }
+
+    if (mode === 'reduce-into-var') {
+      ctx.log.info(`for-each → vars.${varName} (len=${(ctx.vars[varName] as unknown[]).length})`);
+      return { out: ctx.vars[varName] };
+    }
+    ctx.log.info(`for-each (${mode}) processed ${items.length} item(s)`);
+    return { out: collected };
+  },
+};
+
+/* ====================================================================== */
+/* state — workflow-scoped variables                                        */
+/* ====================================================================== */
+
+const setVar: NodeExecutor = {
+  id: 'set-var',
+  execute: (ctx) => {
+    const name = String(ctx.config.name ?? '').trim();
+    if (!name) throw new Error('set-var: name is required');
+    const raw = renderTemplate(String(ctx.config.value ?? ''), ctx.inputs.in, ctx.vars);
+    const parsed = parseMaybeJson(raw);
+    ctx.vars[name] = parsed;
+    ctx.log.info(`set vars.${name}`, parsed);
+    return { out: ctx.inputs.in };
+  },
+};
+
+const incrementVar: NodeExecutor = {
+  id: 'increment-var',
+  execute: (ctx) => {
+    const name = String(ctx.config.name ?? '').trim();
+    if (!name) throw new Error('increment-var: name is required');
+    const by = Number(ctx.config.by ?? 1);
+    const current = Number(ctx.vars[name] ?? 0);
+    const next = current + (Number.isFinite(by) ? by : 0);
+    ctx.vars[name] = next;
+    ctx.log.info(`vars.${name} = ${next}`);
+    return { out: ctx.inputs.in };
+  },
+};
+
+const appendVar: NodeExecutor = {
+  id: 'append-var',
+  execute: (ctx) => {
+    const name = String(ctx.config.name ?? '').trim();
+    if (!name) throw new Error('append-var: name is required');
+    const rendered = renderTemplate(String(ctx.config.value ?? ''), ctx.inputs.in, ctx.vars);
+    const value = parseMaybeJson(rendered);
+    const existing = ctx.vars[name];
+    const arr = Array.isArray(existing) ? [...existing] : [];
+    arr.push(value);
+    ctx.vars[name] = arr;
+    ctx.log.info(`appended to vars.${name} (len=${arr.length})`);
+    return { out: ctx.inputs.in };
+  },
+};
+
 /* ====================================================================== */
 /* ai                                                                       */
 /* ====================================================================== */
@@ -214,7 +410,7 @@ const aiPrompt: NodeExecutor = {
   execute: async (ctx) => {
     const provider = String(ctx.config.provider ?? 'mock');
     const promptTpl = String(ctx.config.prompt ?? '');
-    const prompt = renderTemplate(promptTpl, ctx.inputs.in);
+    const prompt = renderTemplate(promptTpl, ctx.inputs.in, ctx.vars);
     const system = ctx.config.system ? String(ctx.config.system) : undefined;
     const model = String(ctx.config.model ?? 'claude-opus-4-7');
     const maxTokens = Number(ctx.config.maxTokens ?? 1024);
@@ -238,39 +434,59 @@ const aiPrompt: NodeExecutor = {
 /* integrations — brand-icon demo stubs                                     */
 /* ====================================================================== */
 
-/* These three forward the input through after logging that they "would"
- * have called the third-party API. Real implementations wrap the same
- * config shape — keeping the editor-side definitions stable while the
- * executor layer grows. */
+/* Each integration operation is currently a stub: it logs and forwards a
+ * shape that mirrors the real API response, so workflows can be built and
+ * tested without credentials. Real implementations replace these one-by-
+ * one without changing the operation id or config shape. */
 
-const telegramMessage: NodeExecutor = {
-  id: 'telegram-message',
-  execute: (ctx) => {
-    const text = renderTemplate(String(ctx.config.text ?? ''), ctx.inputs.in);
-    const chatId = String(ctx.config.chatId ?? '');
-    ctx.log.info(`telegram (stub) → ${chatId}: ${text}`);
-    return { out: { chatId, text, ok: true } };
-  },
-};
+function makeIntegrationStub(id: string, label: string): NodeExecutor {
+  return {
+    id,
+    execute: (ctx) => {
+      ctx.log.info(`${label} (stub) — config:`, ctx.config);
+      return { out: { ok: true, stub: id, config: ctx.config, input: ctx.inputs.in } };
+    },
+  };
+}
 
-const githubIssue: NodeExecutor = {
-  id: 'github-issue',
-  execute: (ctx) => {
-    const repo = String(ctx.config.repo ?? '');
-    const title = renderTemplate(String(ctx.config.title ?? ''), ctx.inputs.in);
-    ctx.log.info(`github (stub) → ${repo} issue: ${title}`);
-    return { out: { repo, title, ok: true } };
-  },
-};
+const githubExecutors: NodeExecutor[] = [
+  makeIntegrationStub('github-issue-create', 'github · create issue'),
+  makeIntegrationStub('github-issue-comment', 'github · comment'),
+  makeIntegrationStub('github-pr-create', 'github · open pr'),
+  makeIntegrationStub('github-repo-star', 'github · star'),
+  makeIntegrationStub('github-dispatch', 'github · dispatch'),
+];
 
-const discordMessage: NodeExecutor = {
-  id: 'discord-message',
-  execute: (ctx) => {
-    const content = renderTemplate(String(ctx.config.content ?? ''), ctx.inputs.in);
-    ctx.log.info(`discord (stub): ${content}`);
-    return { out: { content, ok: true } };
-  },
-};
+const discordExecutors: NodeExecutor[] = [
+  makeIntegrationStub('discord-webhook-send', 'discord · send'),
+  makeIntegrationStub('discord-webhook-embed', 'discord · embed'),
+  makeIntegrationStub('discord-thread-create', 'discord · thread'),
+];
+
+const telegramExecutors: NodeExecutor[] = [
+  makeIntegrationStub('telegram-send-message', 'telegram · send'),
+  makeIntegrationStub('telegram-send-photo', 'telegram · photo'),
+  makeIntegrationStub('telegram-edit-message', 'telegram · edit'),
+  makeIntegrationStub('telegram-send-poll', 'telegram · poll'),
+];
+
+const notionExecutors: NodeExecutor[] = [
+  makeIntegrationStub('notion-page-create', 'notion · create page'),
+  makeIntegrationStub('notion-database-query', 'notion · query db'),
+  makeIntegrationStub('notion-block-append', 'notion · append blocks'),
+];
+
+const gmailExecutors: NodeExecutor[] = [
+  makeIntegrationStub('gmail-send', 'gmail · send'),
+  makeIntegrationStub('gmail-draft', 'gmail · draft'),
+  makeIntegrationStub('gmail-search', 'gmail · search'),
+];
+
+const openaiExecutors: NodeExecutor[] = [
+  makeIntegrationStub('openai-chat', 'openai · chat'),
+  makeIntegrationStub('openai-image', 'openai · image'),
+  makeIntegrationStub('openai-embed', 'openai · embed'),
+];
 
 /* ====================================================================== */
 /* exports                                                                  */
@@ -281,15 +497,26 @@ export const BUILTIN_EXECUTORS: NodeExecutor[] = [
   webhookTrigger,
   cronTrigger,
   httpRequest,
+  httpRespond,
+  delay,
   log,
   jsTransform,
   template,
   ifNode,
   merge,
+  loopStartStub,
+  loopEndStub,
+  forEach,
+  setVar,
+  incrementVar,
+  appendVar,
   aiPrompt,
-  telegramMessage,
-  githubIssue,
-  discordMessage,
+  ...githubExecutors,
+  ...discordExecutors,
+  ...telegramExecutors,
+  ...notionExecutors,
+  ...gmailExecutors,
+  ...openaiExecutors,
 ];
 
 export const BUILTIN_EXECUTOR_REGISTRY: ExecutorRegistry = createExecutorRegistry(BUILTIN_EXECUTORS);
@@ -310,14 +537,27 @@ function parseMaybeJson(v: unknown): unknown {
 }
 
 /**
- * `{{path.to.field}}` interpolation against a context object. Falls back
- * to the raw string when context is missing or non-object.
+ * `{{path.to.field}}` interpolation. Paths that start with `vars.` resolve
+ * against the workflow vars map; everything else resolves against the
+ * input context. Falls back to the empty string when a path can't be
+ * walked — this is forgiving on purpose so a missing field renders blank
+ * instead of throwing.
  */
-function renderTemplate(template: string, context: unknown): string {
+function renderTemplate(template: string, context: unknown, vars?: Record<string, unknown>): string {
   if (!template.includes('{{')) return template;
   return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, expr) => {
-    const path = String(expr).split('.').map((s) => s.trim());
-    let cursor: unknown = context;
+    const segments = String(expr).split('.').map((s) => s.trim());
+    let cursor: unknown;
+    if (segments[0] === 'vars' && vars) {
+      cursor = vars;
+    } else {
+      cursor = context;
+    }
+    const path = segments[0] === 'vars' && vars ? segments.slice(1) : segments;
+    if (path.length === 0) {
+      // `{{vars}}` — return the whole vars map.
+      return cursor == null ? '' : JSON.stringify(cursor);
+    }
     for (const seg of path) {
       if (cursor == null) return '';
       if (typeof cursor !== 'object') return '';

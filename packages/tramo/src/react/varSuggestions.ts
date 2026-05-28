@@ -33,17 +33,41 @@ export interface VarSuggestionsOptions {
   perNodeLimit?: number;
 }
 
+const STATE_NODE_TYPES = new Set(['set-var', 'increment-var', 'append-var']);
+
 export function getVarSuggestions(
   doc: WorkflowDoc,
   registry: NodeRegistry,
   nodeId: string,
   opts: VarSuggestionsOptions = {},
 ): VarSuggestion[] {
-  const incoming = getIncomingEdges(doc, nodeId);
-  if (incoming.length === 0) return [];
-
   const out: VarSuggestion[] = [];
   const perNodeLimit = opts.perNodeLimit ?? 8;
+
+  // 1) Workflow variables — any state-category node anywhere in the doc
+  //    contributes its `name` field as a `vars.NAME` suggestion. We don't
+  //    restrict to upstream because the runner walks topologically and
+  //    a var may be set further along by a node the user just hasn't
+  //    wired yet. Listing the full set keeps the picker forgiving.
+  const seenVars = new Set<string>();
+  for (const node of doc.nodes) {
+    if (node.id === nodeId) continue;
+    if (!STATE_NODE_TYPES.has(node.type)) continue;
+    const name = String(node.config?.name ?? '').trim();
+    if (!name || seenVars.has(name)) continue;
+    seenVars.add(name);
+    const def = registry.get(node.type);
+    out.push({
+      path: `vars.${name}`,
+      label: `{{vars.${name}}}`,
+      sourceLabel: def?.name ?? node.type,
+      group: 'Workflow variables',
+    });
+  }
+
+  // 2) Per-edge upstream values (the original behaviour).
+  const incoming = getIncomingEdges(doc, nodeId);
+  if (incoming.length === 0) return dedupe(out);
 
   for (const edge of incoming) {
     const upstream = doc.nodes.find((n) => n.id === edge.source);

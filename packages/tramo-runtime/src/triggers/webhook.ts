@@ -7,6 +7,7 @@
  * scoped to the (method, path) declared on the matching node's config.
  */
 
+import { topoSort } from 'tramo-spec';
 import { run } from '../runner.js';
 import type {
   ExecutorRegistry,
@@ -65,17 +66,56 @@ export function webhook(
         query: req.query ?? Object.fromEntries(url.searchParams),
       };
       const result: RunResult = await run(doc, registry, { ...options, trigger });
+      if (!result.ok) {
+        return {
+          status: 500,
+          body: { ok: false, triggeredNode: match.nodeId, error: result.error ?? 'run failed' },
+          headers: { 'content-type': 'application/json' },
+        };
+      }
+
+      // If the workflow placed an http-respond node, that's the response.
+      // Pick the LAST one in topo order so a "default" upstream node can be
+      // overridden by a more specific downstream one.
+      const shaped = pickShapedResponse(doc, result);
+      if (shaped) return shaped;
+
+      // Fallback: legacy shape — useful when the user hasn't wired an
+      // http-respond yet but still wants to ping the endpoint.
       return {
-        status: result.ok ? 200 : 500,
+        status: 200,
         body: {
-          ok: result.ok,
+          ok: true,
           triggeredNode: match.nodeId,
-          ...(result.error ? { error: result.error } : {}),
-          // Only return the leaf results — the full event log is verbose.
           results: result.nodeResults,
         },
         headers: { 'content-type': 'application/json' },
       };
     },
   };
+}
+
+function pickShapedResponse(doc: WorkflowDoc, result: RunResult): WebhookResponse | null {
+  const responders = doc.nodes.filter((n) => n.type === 'http-respond');
+  if (responders.length === 0) return null;
+  const topo = topoSort(doc);
+  const order = topo.ok ? topo.order : doc.nodes.map((n) => n.id);
+  const orderIndex = new Map(order.map((id, i) => [id, i]));
+  responders.sort((a, b) => (orderIndex.get(a.id) ?? 0) - (orderIndex.get(b.id) ?? 0));
+
+  for (let i = responders.length - 1; i >= 0; i--) {
+    const r = result.nodeResults[responders[i].id];
+    if (r && typeof r === 'object' && 'response' in r) {
+      const resp = (r as Record<string, unknown>).response;
+      if (resp && typeof resp === 'object') {
+        const { status, body, headers } = resp as { status?: number; body?: unknown; headers?: Record<string, string> };
+        return {
+          status: typeof status === 'number' ? status : 200,
+          body,
+          headers: headers ?? {},
+        };
+      }
+    }
+  }
+  return null;
 }

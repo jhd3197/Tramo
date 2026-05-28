@@ -7,7 +7,7 @@ import {
   type Patch,
   type WorkflowDoc,
 } from 'tramo-spec';
-import { AgentChat, Canvas, RightRail, useWorkflow } from 'tramo/react';
+import { AgentChat, Canvas, RightRail, useWorkflow, type NodeRunStatus } from 'tramo/react';
 import { BUILTIN_PACK, combinePacks, run, type RunEvent } from 'tramo-runtime';
 import { SAMPLE_DOC } from './sample.js';
 
@@ -77,6 +77,38 @@ export function App() {
     workflow.setDoc(buildExampleDoc());
   }, [workflow]);
 
+  // Derive per-node status from the streamed RunEvents. Recomputed on
+  // every event push — cheap because events are O(nodes·iterations) and
+  // we only build a small map.
+  const runStatus = useMemo(() => {
+    const map: Record<string, NodeRunStatus> = {};
+    for (const e of events) {
+      switch (e.type) {
+        case 'node-start':
+          map[e.nodeId] = { status: 'running' };
+          break;
+        case 'node-success': {
+          // Flatten `{ out: value }` so the chip shows the bare value users
+          // see downstream — matches the runResults flattening above.
+          const raw = e.output;
+          let output: unknown = raw;
+          if (raw && typeof raw === 'object' && !Array.isArray(raw) && 'out' in raw && Object.keys(raw).length === 1) {
+            output = (raw as Record<string, unknown>).out;
+          }
+          map[e.nodeId] = { status: 'success', output, durationMs: e.durationMs };
+          break;
+        }
+        case 'node-error':
+          map[e.nodeId] = { status: 'error', error: e.error, durationMs: e.durationMs };
+          break;
+        case 'node-skip':
+          map[e.nodeId] = { status: 'skip', reason: e.reason };
+          break;
+      }
+    }
+    return map;
+  }, [events]);
+
   return (
     <div className="demo-app">
       <header className="demo-header">
@@ -121,7 +153,7 @@ export function App() {
 
       <div className="demo-body">
         <main className="demo-stage">
-          <Canvas workflow={workflow} runResults={runResults} />
+          <Canvas workflow={workflow} runResults={runResults} runStatus={runStatus} />
           {events.length > 0 ? <RunLog events={events} /> : null}
         </main>
 

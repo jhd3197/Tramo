@@ -6,7 +6,7 @@ export {
   type SaveStatus,
 } from './useWorkflow.js';
 export { Canvas, type CanvasProps } from './Canvas.js';
-export { NodeView, type NodeViewProps } from './NodeView.js';
+export { NodeView, type NodeViewProps, type NodeRunStatus } from './NodeView.js';
 export { Edge, type EdgeProps } from './Edge.js';
 export { PlusButton, type PlusButtonProps } from './PlusButton.js';
 export { NodeIcon, type NodeIconProps } from './icons.js';

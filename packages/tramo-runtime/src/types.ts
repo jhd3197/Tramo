@@ -25,6 +25,13 @@ export interface ExecutionContext {
   log: NodeLogger;
   node: WorkflowNode;
   runId: string;
+  /**
+   * Shared mutable map of workflow variables. Lives for the duration of
+   * one Run and resets between runs. Mutated by the state-category nodes
+   * (set-var, increment-var, append-var) and read by template/JS fields
+   * via the `vars.NAME` path.
+   */
+  vars: Record<string, unknown>;
 }
 
 export interface NodeLogger {

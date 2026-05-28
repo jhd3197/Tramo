@@ -4,7 +4,6 @@
  * Renders a popover with:
  *   - Run after: on-success | on-error | always (radio-style).
  *   - Delete this step.
- *   - Delete all steps (clears the workflow).
  *
  * The menu wires directly to applyPatch instead of bubbling clicks
  * through the rest of the canvas — same pattern as the insertion
@@ -20,7 +19,7 @@ import {
   type CSSProperties,
 } from 'react';
 import { MoreVertical, Trash2, AlertCircle, CheckCircle2, Infinity as InfinityIcon } from 'lucide-react';
-import { emptyDoc, type Patch, type RunAfter, type WorkflowNode } from 'tramo-spec';
+import type { Patch, RunAfter, WorkflowNode } from 'tramo-spec';
 
 export interface NodeMenuProps {
   node: WorkflowNode;
@@ -63,11 +62,6 @@ export function NodeMenu({ node, applyPatch }: NodeMenuProps) {
     applyPatch({ kind: 'remove-node', id: node.id });
     setOpen(false);
   }, [applyPatch, node.id]);
-
-  const deleteAll = useCallback(() => {
-    applyPatch({ kind: 'set-full-doc', doc: emptyDoc() });
-    setOpen(false);
-  }, [applyPatch]);
 
   const current: RunAfter = node.runAfter ?? 'on-success';
   const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
@@ -124,12 +118,6 @@ export function NodeMenu({ node, applyPatch }: NodeMenuProps) {
             icon={<Trash2 size={14} />}
             label="Delete this step"
             onClick={deleteNode}
-            danger
-          />
-          <MenuItem
-            icon={<Trash2 size={14} />}
-            label="Delete all steps"
-            onClick={deleteAll}
             danger
           />
         </div>

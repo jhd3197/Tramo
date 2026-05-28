@@ -19,20 +19,27 @@ import {
   Clock,
   CloudDownload,
   Code,
+  Database,
   GitBranch,
   Globe,
+  Hourglass,
   Info,
+  ListPlus,
   Merge,
   Play,
   PlayCircle,
+  Plus,
+  Repeat,
+  Reply,
   Sparkles,
   StickyNote,
   Type,
+  Variable,
   Wand2,
   Zap,
   type LucideIcon,
 } from 'lucide-react';
-import type { NodeCategory, NodeDefinition } from 'tramo-spec';
+import type { IntegrationDefinition, NodeCategory, NodeDefinition } from 'tramo-spec';
 // simple-icons ships its types as a single minified .d.ts line; TS can't
 // always resolve individual named exports through it, so we read the full
 // namespace and index into it. The runtime export is unaffected.
@@ -65,6 +72,13 @@ const LUCIDE: Record<string, LucideIcon> = {
   PlayCircle,
   Wand2,
   Info,
+  Variable,
+  Plus,
+  ListPlus,
+  Database,
+  Repeat,
+  Hourglass,
+  Reply,
 };
 
 /* ---------- category metadata — pill label, icon, soft colors ---------- */
@@ -83,6 +97,7 @@ export const CATEGORY_META: Record<NodeCategory, CategoryMeta> = {
   action:    { label: 'Action',    Icon: PlayCircle,  bg: '#d1fae5', fg: '#047857' },
   transform: { label: 'Transform', Icon: Wand2,       bg: '#dbeafe', fg: '#1d4ed8' },
   logic:     { label: 'Condition', Icon: GitBranch,   bg: '#e0f2fe', fg: '#0369a1' },
+  state:     { label: 'Variable',  Icon: Variable,    bg: '#ccfbf1', fg: '#0f766e' },
   ai:        { label: 'AI',        Icon: Sparkles,    bg: '#fce7f3', fg: '#be185d' },
   io:        { label: 'I/O',       Icon: Cable,       bg: '#f1f5f9', fg: '#475569' },
 };
@@ -97,6 +112,8 @@ const BRAND: Record<string, SimpleIcon> = {
   discord: si.siDiscord!,
   notion: si.siNotion!,
   linear: si.siLinear!,
+  gmail: si.siGmail!,
+  openai: si.siOpenai!,
 };
 
 export interface NodeIconProps {
@@ -144,4 +161,25 @@ export const NodeIcon = memo(function NodeIconImpl({
     }
   }
   return <span aria-hidden>◆</span>;
+});
+
+/**
+ * Render an icon for an IntegrationDefinition tile (picker grid). Falls
+ * back to NodeIcon's resolution rules by adapting the shape.
+ */
+export const IntegrationIcon = memo(function IntegrationIconImpl({
+  integration,
+  size = 20,
+  monochrome = false,
+}: {
+  integration: IntegrationDefinition;
+  size?: number;
+  monochrome?: boolean;
+}) {
+  // Reuse NodeIcon by projecting just the fields it reads.
+  const proxy = {
+    icon: integration.icon ?? '',
+    iconBrand: integration.iconBrand,
+  } as unknown as NodeDefinition;
+  return <NodeIcon definition={proxy} size={size} monochrome={monochrome} />;
 });

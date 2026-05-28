@@ -6,12 +6,15 @@
  */
 import { runCommand } from '../run.js';
 import { validateCommand } from '../validate.js';
+import { serveCommand } from '../serve.js';
 import { processIO } from '../io.js';
 
 interface ParsedArgs {
-  command: 'run' | 'validate' | 'help';
+  command: 'run' | 'validate' | 'serve' | 'help';
   file?: string;
   trigger?: unknown;
+  port?: number;
+  host?: string;
   color: boolean;
   /** Set when parsing itself failed — carries the message to print. */
   parseError?: string;
@@ -23,7 +26,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   }
 
   const sub = argv[0];
-  if (sub !== 'run' && sub !== 'validate' && sub !== 'help') {
+  if (sub !== 'run' && sub !== 'validate' && sub !== 'serve' && sub !== 'help') {
     return { command: 'help', color: true, parseError: `unknown command: ${sub}` };
   }
   if (sub === 'help') {
@@ -32,6 +35,8 @@ function parseArgs(argv: string[]): ParsedArgs {
 
   let file: string | undefined;
   let trigger: unknown;
+  let port: number | undefined;
+  let host: string | undefined;
   let color = true;
 
   for (let i = 1; i < argv.length; i++) {
@@ -48,6 +53,22 @@ function parseArgs(argv: string[]): ParsedArgs {
       } catch (err) {
         return { command: sub, color, parseError: `--trigger: invalid JSON (${(err as Error).message})` };
       }
+    } else if (arg === '--port') {
+      const next = argv[++i];
+      if (next === undefined) {
+        return { command: sub, color, parseError: '--port requires a number argument' };
+      }
+      const n = Number(next);
+      if (!Number.isInteger(n) || n < 0 || n > 65535) {
+        return { command: sub, color, parseError: `--port: invalid port "${next}"` };
+      }
+      port = n;
+    } else if (arg === '--host') {
+      const next = argv[++i];
+      if (next === undefined) {
+        return { command: sub, color, parseError: '--host requires a value' };
+      }
+      host = next;
     } else if (arg.startsWith('--')) {
       return { command: sub, color, parseError: `unknown flag: ${arg}` };
     } else if (file === undefined) {
@@ -61,20 +82,22 @@ function parseArgs(argv: string[]): ParsedArgs {
     return { command: sub, color, parseError: `${sub}: missing workflow file argument` };
   }
 
-  return { command: sub, file, trigger, color };
+  return { command: sub, file, trigger, port, host, color };
 }
 
-const HELP = `tramo — run and validate tramo workflow JSON files
+const HELP = `tramo — run, validate, and serve tramo workflow JSON files
 
 Usage:
   tramo run <file> [--trigger '<json>'] [--no-color]
   tramo validate <file> [--no-color]
+  tramo serve <file> [--port 3000] [--host 0.0.0.0] [--no-color]
   tramo help
 
 Examples:
   tramo run workflow.json
   tramo run workflow.json --trigger '{"user":"juan"}'
   tramo validate workflow.json
+  tramo serve workflow.json --port 8080
 
 Exit codes:
   0   success
@@ -100,6 +123,15 @@ async function main(argv: string[]): Promise<number> {
 
   if (parsed.command === 'run') {
     return runCommand({ file: parsed.file!, trigger: parsed.trigger, io });
+  }
+
+  if (parsed.command === 'serve') {
+    return serveCommand({
+      file: parsed.file!,
+      port: parsed.port ?? 3000,
+      host: parsed.host ?? '0.0.0.0',
+      io,
+    });
   }
 
   return validateCommand({ file: parsed.file!, io });

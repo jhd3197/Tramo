@@ -7,7 +7,7 @@ import {
   emptyDoc,
   type WorkflowDoc,
 } from 'tramo-spec';
-import { runCommand, validateCommand, type CommandIO } from '../src/index.js';
+import { runCommand, validateCommand, serveCommand, type CommandIO } from '../src/index.js';
 
 let tmp: string;
 
@@ -164,5 +164,60 @@ describe('runCommand', () => {
     const code = await runCommand({ file: join(tmp, 'absent.json'), io });
     expect(code).toBe(1);
     expect(io.err.join('\n')).toMatch(/cannot read/);
+  });
+});
+
+describe('serveCommand (end-to-end HTTP)', () => {
+  it('boots an HTTP server that dispatches through the webhook driver', async () => {
+    const doc = applyPatches(emptyDoc(), [
+      { kind: 'add-node', node: { id: 'w', type: 'webhook-trigger', config: { path: '/ping', method: 'POST' } } },
+      { kind: 'add-node', node: { id: 't', type: 'js-transform', config: { expression: 'return { echo: input.body };' } } },
+      {
+        kind: 'add-node',
+        node: {
+          id: 'r',
+          type: 'http-respond',
+          config: { status: 200, bodyMode: 'json', body: '{ "echo": {{echo}} }' },
+        },
+      },
+      { kind: 'add-edge', edge: { id: 'e1', source: 'w', target: 't' } },
+      { kind: 'add-edge', edge: { id: 'e2', source: 't', target: 'r' } },
+    ]).doc;
+    const path = await writeDoc('serve.json', doc);
+    const io = captureIO();
+
+    // Listen on port 0 so the OS picks a free one — avoids flakes on shared CI.
+    const ready = new Promise<number>((resolve) => {
+      void serveCommand({ file: path, port: 0, host: '127.0.0.1', io, onListening: resolve });
+    });
+    const port = await ready;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/ping`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Juan' }),
+      });
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json).toEqual({ echo: { name: 'Juan' } });
+
+      const r404 = await fetch(`http://127.0.0.1:${port}/nope`);
+      expect(r404.status).toBe(404);
+    } finally {
+      // Trigger the shutdown path so the server closes and the promise resolves.
+      process.emit('SIGINT');
+    }
+  });
+
+  it('exits 1 when the doc has no webhook-trigger', async () => {
+    const doc = applyPatches(emptyDoc(), [
+      { kind: 'add-node', node: { id: 't', type: 'manual-trigger', config: {} } },
+    ]).doc;
+    const path = await writeDoc('no-webhook.json', doc);
+    const io = captureIO();
+    const code = await serveCommand({ file: path, port: 0, host: '127.0.0.1', io });
+    expect(code).toBe(1);
+    expect(io.err.join('\n')).toMatch(/no webhook-trigger/);
   });
 });
