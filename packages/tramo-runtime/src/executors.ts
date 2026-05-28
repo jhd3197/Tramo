@@ -685,6 +685,305 @@ const aiPrompt: NodeExecutor = {
  * defineNodePack; consumers compose them with BUILTIN_PACK at the app
  * layer using combinePacks(). */
 
+/* ====================================================================== */
+/* utility nodes — signatures, parsing, encoding, bytes                     */
+/* ====================================================================== */
+
+const verifySignature: NodeExecutor = {
+  id: 'verify-signature',
+  execute: async (ctx) => {
+    const preset = String(ctx.config.preset ?? 'generic');
+    const secret = String(ctx.config.secret ?? '');
+    if (!secret) return { error: { message: 'verify-signature: secret is required' } };
+    const bodyExpr = String(ctx.config.bodySource ?? 'input.body').trim() || 'input.body';
+    const algorithmCfg = String(ctx.config.algorithm ?? 'sha256');
+    const headerNameCfg = String(ctx.config.headerName ?? 'x-signature').toLowerCase();
+
+    const input = ctx.inputs.in as { headers?: Record<string, string>; body?: unknown } | undefined;
+    if (!input || typeof input !== 'object') {
+      return { error: { message: 'verify-signature: input must be an object with `headers` and `body`' } };
+    }
+    const headersIn: Record<string, string> = {};
+    for (const [k, v] of Object.entries(input.headers ?? {})) headersIn[k.toLowerCase()] = String(v);
+
+    // Resolve the raw body that was signed.
+    let rawBody: string;
+    try {
+      const fn = new Function('input', 'vars', `return (${bodyExpr});`) as (i: unknown, v: Record<string, unknown>) => unknown;
+      const val = fn(input, ctx.vars);
+      rawBody = typeof val === 'string' ? val : JSON.stringify(val);
+    } catch (err) {
+      return { error: { message: `verify-signature: body expression failed: ${(err as Error).message}` } };
+    }
+
+    // Decide algorithm + header + comparison strategy per preset.
+    let algorithm: 'sha256' | 'sha1' = 'sha256';
+    let headerName = headerNameCfg;
+    let prefix = '';
+    let payload = rawBody;
+    if (preset === 'github') { algorithm = 'sha256'; headerName = 'x-hub-signature-256'; prefix = 'sha256='; }
+    else if (preset === 'stripe') { algorithm = 'sha256'; headerName = 'stripe-signature'; }
+    else if (preset === 'slack') { algorithm = 'sha256'; headerName = 'x-slack-signature'; prefix = 'v0='; }
+    else if (preset === 'twilio') { algorithm = 'sha1'; headerName = 'x-twilio-signature'; }
+    else { algorithm = algorithmCfg === 'sha1' ? 'sha1' : 'sha256'; }
+
+    const provided = headersIn[headerName];
+    if (!provided) {
+      return { bad: { reason: `missing ${headerName} header`, expected: null, provided: null } };
+    }
+
+    try {
+      const expected = await hmacHex(secret, payload, algorithm);
+      if (preset === 'stripe') {
+        // Stripe signs `${timestamp}.${body}`; signature header is `t=…,v1=…`.
+        const parts = Object.fromEntries(
+          provided.split(',').map((kv) => kv.split('=') as [string, string]).filter((kv) => kv.length === 2),
+        );
+        const t = parts.t;
+        const v1 = parts.v1;
+        if (!t || !v1) return { bad: { reason: 'malformed Stripe-Signature', provided } };
+        payload = `${t}.${rawBody}`;
+        const stripeExpected = await hmacHex(secret, payload, 'sha256');
+        return safeEqual(stripeExpected, v1)
+          ? { ok: input }
+          : { bad: { reason: 'signature mismatch', expected: stripeExpected, provided: v1 } };
+      }
+      if (preset === 'slack') {
+        const ts = headersIn['x-slack-request-timestamp'];
+        if (!ts) return { bad: { reason: 'missing x-slack-request-timestamp header' } };
+        payload = `v0:${ts}:${rawBody}`;
+        const slackExpected = `v0=${await hmacHex(secret, payload, 'sha256')}`;
+        return safeEqual(slackExpected, provided)
+          ? { ok: input }
+          : { bad: { reason: 'signature mismatch', expected: slackExpected, provided } };
+      }
+      const expectedFull = `${prefix}${expected}`;
+      return safeEqual(expectedFull, provided)
+        ? { ok: input }
+        : { bad: { reason: 'signature mismatch', expected: expectedFull, provided } };
+    } catch (err) {
+      return { error: { message: (err as Error).message } };
+    }
+  },
+};
+
+const csvParseNode: NodeExecutor = {
+  id: 'csv-parse',
+  execute: (ctx) => {
+    const sourceExpr = String(ctx.config.source ?? 'input').trim() || 'input';
+    const delimiter = String(ctx.config.delimiter ?? ',') || ',';
+    const headerRow = ctx.config.headerRow !== false;
+    const trim = ctx.config.trim !== false;
+    let source: unknown;
+    try {
+      const fn = new Function('input', 'vars', `return (${sourceExpr});`) as (i: unknown, v: Record<string, unknown>) => unknown;
+      source = fn(ctx.inputs.in, ctx.vars);
+    } catch (err) {
+      return { error: { message: `csv-parse: source expression failed: ${(err as Error).message}` } };
+    }
+    if (typeof source !== 'string') {
+      return { error: { message: `csv-parse: source did not resolve to a string (got ${typeof source})` } };
+    }
+    try {
+      const rows = parseCsv(source, delimiter, trim);
+      if (!headerRow) return { out: rows };
+      const header = rows.shift() ?? [];
+      const out = rows.map((row) => {
+        const obj: Record<string, string> = {};
+        header.forEach((key, i) => { obj[key] = row[i] ?? ''; });
+        return obj;
+      });
+      return { out };
+    } catch (err) {
+      return { error: { message: (err as Error).message } };
+    }
+  },
+};
+
+const csvStringifyNode: NodeExecutor = {
+  id: 'csv-stringify',
+  execute: (ctx) => {
+    const delimiter = String(ctx.config.delimiter ?? ',') || ',';
+    const emitHeader = ctx.config.header !== false;
+    const explicitCols = parseMaybeJson(ctx.config.columns);
+    const rows = ctx.inputs.in;
+    if (!Array.isArray(rows)) return { out: '' };
+    if (rows.length === 0) return { out: '' };
+    let columns: string[];
+    if (Array.isArray(explicitCols) && explicitCols.length > 0) {
+      columns = explicitCols.map(String);
+    } else if (rows[0] && typeof rows[0] === 'object' && !Array.isArray(rows[0])) {
+      columns = Object.keys(rows[0] as Record<string, unknown>);
+    } else {
+      // Array-of-arrays: no header inference possible.
+      columns = [];
+    }
+    const lines: string[] = [];
+    if (emitHeader && columns.length > 0) lines.push(columns.map((c) => csvQuote(c, delimiter)).join(delimiter));
+    for (const row of rows) {
+      if (Array.isArray(row)) {
+        lines.push(row.map((c) => csvQuote(String(c ?? ''), delimiter)).join(delimiter));
+      } else if (row && typeof row === 'object') {
+        const r = row as Record<string, unknown>;
+        const cells = columns.length > 0 ? columns.map((c) => r[c]) : Object.values(r);
+        lines.push(cells.map((c) => csvQuote(c == null ? '' : typeof c === 'string' ? c : JSON.stringify(c), delimiter)).join(delimiter));
+      }
+    }
+    return { out: lines.join('\n') };
+  },
+};
+
+const fetchBinary: NodeExecutor = {
+  id: 'fetch-binary',
+  execute: async (ctx) => {
+    const url = renderTemplate(String(ctx.config.url ?? ''), ctx.inputs.in, ctx.vars);
+    if (!url) return { error: { message: 'fetch-binary: url is required' } };
+    const headers = parseMaybeJson(ctx.config.headers) ?? {};
+    const timeoutMs = Number(ctx.config.timeoutMs ?? 30000);
+    ctx.log.info(`fetch-binary GET ${url}`);
+    try {
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: headers as HeadersInit,
+        signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(timeoutMs)]),
+      });
+      if (!res.ok) return { error: { message: `fetch-binary: HTTP ${res.status}: ${await res.text()}` } };
+      const buf = await res.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      const base64 = bytesToBase64(bytes);
+      const mimeType = res.headers.get('content-type') ?? 'application/octet-stream';
+      return { out: { base64, mimeType, size: bytes.byteLength, url } };
+    } catch (err) {
+      return { error: { message: (err as Error).message } };
+    }
+  },
+};
+
+const uploadBinary: NodeExecutor = {
+  id: 'upload-binary',
+  execute: async (ctx) => {
+    const url = renderTemplate(String(ctx.config.url ?? ''), ctx.inputs.in, ctx.vars);
+    if (!url) return { error: { message: 'upload-binary: url is required' } };
+    const fieldName = String(ctx.config.fieldName ?? 'file');
+    const fileName = renderTemplate(String(ctx.config.fileName ?? 'upload.bin'), ctx.inputs.in, ctx.vars);
+    const contentBase64 = renderTemplate(String(ctx.config.contentBase64 ?? ''), ctx.inputs.in, ctx.vars);
+    if (!contentBase64) return { error: { message: 'upload-binary: contentBase64 is required' } };
+    const mimeType = String(ctx.config.mimeType ?? 'application/octet-stream');
+    const extraHeaders = parseMaybeJson(ctx.config.headers) ?? {};
+    try {
+      const bytes = base64ToBytes(contentBase64);
+      const form = new FormData();
+      // Cast to BlobPart: TS narrows Uint8Array's buffer to ArrayBufferLike
+      // (which includes SharedArrayBuffer), but Blob's BlobPart union only
+      // accepts plain ArrayBuffer. The runtime accepts either fine.
+      const blob = new Blob([bytes as unknown as BlobPart], { type: mimeType });
+      form.append(fieldName, blob, fileName);
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: extraHeaders as HeadersInit,
+        body: form,
+        signal: ctx.signal,
+      });
+      const contentType = res.headers.get('content-type') ?? '';
+      const data = contentType.includes('application/json')
+        ? await res.json().catch(() => res.text())
+        : await res.text();
+      if (!res.ok) return { error: { message: `upload-binary: HTTP ${res.status}`, status: res.status, data } };
+      return { out: { status: res.status, data } };
+    } catch (err) {
+      return { error: { message: (err as Error).message } };
+    }
+  },
+};
+
+const encodeNode: NodeExecutor = {
+  id: 'encode',
+  execute: (ctx) => {
+    const sourceExpr = String(ctx.config.source ?? 'input').trim() || 'input';
+    const mode = String(ctx.config.mode ?? 'base64-encode');
+    let value: unknown;
+    try {
+      const fn = new Function('input', 'vars', `return (${sourceExpr});`) as (i: unknown, v: Record<string, unknown>) => unknown;
+      value = fn(ctx.inputs.in, ctx.vars);
+    } catch (err) {
+      throw new Error(`encode: source expression failed: ${(err as Error).message}`);
+    }
+    const str = typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value);
+    switch (mode) {
+      case 'base64-encode': return { out: bytesToBase64(new TextEncoder().encode(str)) };
+      case 'base64-decode': return { out: new TextDecoder().decode(base64ToBytes(str)) };
+      case 'hex-encode': return { out: bytesToHex(new TextEncoder().encode(str)) };
+      case 'hex-decode': return { out: new TextDecoder().decode(hexToBytes(str)) };
+      case 'url-encode': return { out: encodeURIComponent(str) };
+      case 'url-decode': return { out: decodeURIComponent(str) };
+      default: throw new Error(`encode: unknown mode "${mode}"`);
+    }
+  },
+};
+
+const hashNode: NodeExecutor = {
+  id: 'hash',
+  execute: async (ctx) => {
+    const sourceExpr = String(ctx.config.source ?? 'input').trim() || 'input';
+    const algorithm = String(ctx.config.algorithm ?? 'sha256').toLowerCase();
+    const encoding = String(ctx.config.encoding ?? 'hex');
+    let value: unknown;
+    try {
+      const fn = new Function('input', 'vars', `return (${sourceExpr});`) as (i: unknown, v: Record<string, unknown>) => unknown;
+      value = fn(ctx.inputs.in, ctx.vars);
+    } catch (err) {
+      throw new Error(`hash: source expression failed: ${(err as Error).message}`);
+    }
+    const str = typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value);
+    const algoName = algorithm === 'sha1' ? 'SHA-1'
+      : algorithm === 'sha512' ? 'SHA-512'
+      : algorithm === 'md5' ? 'MD5'
+      : 'SHA-256';
+    if (algoName === 'MD5') {
+      // MD5 isn't in Web Crypto; ship a tiny inline implementation.
+      const digest = md5(str);
+      return { out: encoding === 'base64' ? bytesToBase64(digest) : bytesToHex(digest) };
+    }
+    const buf = await crypto.subtle.digest(algoName, new TextEncoder().encode(str));
+    const bytes = new Uint8Array(buf);
+    return { out: encoding === 'base64' ? bytesToBase64(bytes) : bytesToHex(bytes) };
+  },
+};
+
+const markdownToHtml: NodeExecutor = {
+  id: 'markdown-to-html',
+  execute: (ctx) => {
+    const sourceExpr = String(ctx.config.source ?? 'input').trim() || 'input';
+    const wrapInP = ctx.config.wrapInP !== false;
+    let value: unknown;
+    try {
+      const fn = new Function('input', 'vars', `return (${sourceExpr});`) as (i: unknown, v: Record<string, unknown>) => unknown;
+      value = fn(ctx.inputs.in, ctx.vars);
+    } catch (err) {
+      throw new Error(`markdown-to-html: source expression failed: ${(err as Error).message}`);
+    }
+    const md = typeof value === 'string' ? value : value == null ? '' : String(value);
+    return { out: renderMarkdown(md, wrapInP) };
+  },
+};
+
+const htmlToText: NodeExecutor = {
+  id: 'html-to-text',
+  execute: (ctx) => {
+    const sourceExpr = String(ctx.config.source ?? 'input').trim() || 'input';
+    const preserveLineBreaks = ctx.config.preserveLineBreaks !== false;
+    let value: unknown;
+    try {
+      const fn = new Function('input', 'vars', `return (${sourceExpr});`) as (i: unknown, v: Record<string, unknown>) => unknown;
+      value = fn(ctx.inputs.in, ctx.vars);
+    } catch (err) {
+      throw new Error(`html-to-text: source expression failed: ${(err as Error).message}`);
+    }
+    const html = typeof value === 'string' ? value : value == null ? '' : String(value);
+    return { out: stripHtml(html, preserveLineBreaks) };
+  },
+};
+
 export const BUILTIN_EXECUTORS: NodeExecutor[] = [
   manualTrigger,
   webhookTrigger,
@@ -711,6 +1010,15 @@ export const BUILTIN_EXECUTORS: NodeExecutor[] = [
   flowOutput,
   callFlow,
   aiPrompt,
+  verifySignature,
+  csvParseNode,
+  csvStringifyNode,
+  fetchBinary,
+  uploadBinary,
+  encodeNode,
+  hashNode,
+  markdownToHtml,
+  htmlToText,
 ];
 
 export const BUILTIN_EXECUTOR_REGISTRY: ExecutorRegistry = createExecutorRegistry(BUILTIN_EXECUTORS);
@@ -848,6 +1156,293 @@ async function callOpenAI(opts: {
     choices: Array<{ message: { content: string } }>;
   };
   return data.choices[0]?.message.content ?? '';
+}
+
+/* ====================================================================== */
+/* helpers for utility nodes — bytes, encoding, HMAC, CSV, markdown, html   */
+/* ====================================================================== */
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = '';
+  for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]!);
+  // Both Node and modern browsers have btoa via global.
+  return typeof btoa === 'function' ? btoa(bin) : Buffer.from(bin, 'binary').toString('base64');
+}
+
+function base64ToBytes(b64: string): Uint8Array {
+  const clean = b64.replace(/\s+/g, '');
+  const bin = typeof atob === 'function' ? atob(clean) : Buffer.from(clean, 'base64').toString('binary');
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.byteLength; i++) s += bytes[i]!.toString(16).padStart(2, '0');
+  return s;
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const clean = hex.replace(/\s+/g, '');
+  if (clean.length % 2 !== 0) throw new Error('hex string has odd length');
+  const out = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+async function hmacHex(secret: string, payload: string, algorithm: 'sha256' | 'sha1'): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: algorithm === 'sha1' ? 'SHA-1' : 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));
+  return bytesToHex(new Uint8Array(sig));
+}
+
+/** Constant-time string comparison — guards against timing oracle attacks
+ *  on signature checks. */
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/** Minimal CSV parser. Supports quoted fields (with "" escapes) and \n /
+ *  \r\n line endings. Embedded newlines inside quotes are preserved. */
+function parseCsv(input: string, delimiter: string, trim: boolean): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let i = 0;
+  let inQuotes = false;
+  while (i < input.length) {
+    const ch = input[i]!;
+    if (inQuotes) {
+      if (ch === '"') {
+        if (input[i + 1] === '"') { cell += '"'; i += 2; continue; }
+        inQuotes = false; i++; continue;
+      }
+      cell += ch; i++; continue;
+    }
+    if (ch === '"') { inQuotes = true; i++; continue; }
+    if (ch === delimiter) { row.push(trim ? cell.trim() : cell); cell = ''; i++; continue; }
+    if (ch === '\r') { i++; continue; }
+    if (ch === '\n') {
+      row.push(trim ? cell.trim() : cell);
+      rows.push(row);
+      row = [];
+      cell = '';
+      i++;
+      continue;
+    }
+    cell += ch; i++;
+  }
+  if (cell !== '' || row.length > 0) {
+    row.push(trim ? cell.trim() : cell);
+    rows.push(row);
+  }
+  return rows;
+}
+
+function csvQuote(cell: string, delimiter: string): string {
+  if (cell.includes(delimiter) || cell.includes('"') || cell.includes('\n') || cell.includes('\r')) {
+    return `"${cell.replace(/"/g, '""')}"`;
+  }
+  return cell;
+}
+
+/** Tiny Markdown → HTML renderer. Handles headers (#, ##, ###),
+ *  bold (**), italic (*, _), inline code (`), links ([text](url)),
+ *  ordered + unordered lists, fenced code blocks, blockquotes, hr, and
+ *  paragraphs. Not exhaustive — for full-fidelity markdown, pipe to a
+ *  proper renderer downstream. */
+function renderMarkdown(md: string, wrapInP: boolean): string {
+  const lines = md.replace(/\r\n/g, '\n').split('\n');
+  const out: string[] = [];
+  let i = 0;
+  let inUL = false;
+  let inOL = false;
+  let inPara: string[] = [];
+
+  const flushPara = () => {
+    if (inPara.length === 0) return;
+    const text = inlineFormat(inPara.join(' ').trim());
+    if (text) out.push(wrapInP ? `<p>${text}</p>` : text);
+    inPara = [];
+  };
+  const closeLists = () => {
+    if (inUL) { out.push('</ul>'); inUL = false; }
+    if (inOL) { out.push('</ol>'); inOL = false; }
+  };
+
+  while (i < lines.length) {
+    const line = lines[i]!;
+    // Fenced code block
+    if (/^```/.test(line)) {
+      flushPara(); closeLists();
+      const lang = line.replace(/^```/, '').trim();
+      const buf: string[] = [];
+      i++;
+      while (i < lines.length && !/^```/.test(lines[i]!)) { buf.push(lines[i]!); i++; }
+      i++;
+      out.push(`<pre><code${lang ? ` class="language-${escapeHtml(lang)}"` : ''}>${escapeHtml(buf.join('\n'))}</code></pre>`);
+      continue;
+    }
+    // Horizontal rule
+    if (/^---+\s*$/.test(line)) { flushPara(); closeLists(); out.push('<hr>'); i++; continue; }
+    // Headers
+    const h = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (h) { flushPara(); closeLists(); out.push(`<h${h[1]!.length}>${inlineFormat(h[2]!.trim())}</h${h[1]!.length}>`); i++; continue; }
+    // Blockquote
+    if (/^>\s?/.test(line)) {
+      flushPara(); closeLists();
+      const buf: string[] = [];
+      while (i < lines.length && /^>\s?/.test(lines[i]!)) { buf.push(lines[i]!.replace(/^>\s?/, '')); i++; }
+      out.push(`<blockquote><p>${inlineFormat(buf.join(' ').trim())}</p></blockquote>`);
+      continue;
+    }
+    // Unordered list
+    if (/^\s*[-*+]\s+/.test(line)) {
+      flushPara();
+      if (!inUL) { closeLists(); out.push('<ul>'); inUL = true; }
+      out.push(`<li>${inlineFormat(line.replace(/^\s*[-*+]\s+/, ''))}</li>`);
+      i++; continue;
+    }
+    // Ordered list
+    if (/^\s*\d+\.\s+/.test(line)) {
+      flushPara();
+      if (!inOL) { closeLists(); out.push('<ol>'); inOL = true; }
+      out.push(`<li>${inlineFormat(line.replace(/^\s*\d+\.\s+/, ''))}</li>`);
+      i++; continue;
+    }
+    // Blank line — end paragraph + lists
+    if (line.trim() === '') { flushPara(); closeLists(); i++; continue; }
+    // Default: accumulate paragraph
+    closeLists();
+    inPara.push(line);
+    i++;
+  }
+  flushPara(); closeLists();
+  return out.join('\n');
+}
+
+function inlineFormat(s: string): string {
+  // Escape HTML special chars first, then re-introduce inline tags.
+  let out = escapeHtml(s);
+  // Inline code (before bold/italic so * inside backticks isn't formatted)
+  out = out.replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`);
+  // Bold + italic
+  out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  out = out.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  out = out.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  out = out.replace(/_([^_]+)_/g, '<em>$1</em>');
+  // Links: [text](url)
+  out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, t, u) => `<a href="${u}">${t}</a>`);
+  return out;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/** Strip HTML tags and decode common entities. Block-level tags become
+ *  newlines when preserveLineBreaks is true; otherwise everything
+ *  collapses to a single line. */
+function stripHtml(html: string, preserveLineBreaks: boolean): string {
+  let s = html;
+  // Drop scripts + styles entirely (content too).
+  s = s.replace(/<script\b[\s\S]*?<\/script>/gi, '');
+  s = s.replace(/<style\b[\s\S]*?<\/style>/gi, '');
+  if (preserveLineBreaks) {
+    s = s.replace(/<br\s*\/?>/gi, '\n');
+    s = s.replace(/<\/(p|div|li|h[1-6]|tr|pre|blockquote)>/gi, '\n');
+  }
+  s = s.replace(/<[^>]+>/g, '');
+  // Decode common entities.
+  s = s.replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+  if (preserveLineBreaks) {
+    return s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+/* MD5 — RFC 1321. Tiny implementation because Web Crypto doesn't ship MD5
+ * and we don't want a dependency for a node that exists mainly for parity
+ * with legacy webhook providers. Operates on UTF-8 bytes, returns a 16-byte
+ * Uint8Array digest. */
+function md5(input: string): Uint8Array {
+  const bytes = new TextEncoder().encode(input);
+  const msgLen = bytes.length;
+  const padLen = (msgLen + 9 + 63) & ~63;
+  const padded = new Uint8Array(padLen);
+  padded.set(bytes);
+  padded[msgLen] = 0x80;
+  const bitLen = BigInt(msgLen) * 8n;
+  const dv = new DataView(padded.buffer);
+  dv.setUint32(padLen - 8, Number(bitLen & 0xffffffffn), true);
+  dv.setUint32(padLen - 4, Number((bitLen >> 32n) & 0xffffffffn), true);
+
+  const K = [
+    0xd76aa478,0xe8c7b756,0x242070db,0xc1bdceee,0xf57c0faf,0x4787c62a,0xa8304613,0xfd469501,
+    0x698098d8,0x8b44f7af,0xffff5bb1,0x895cd7be,0x6b901122,0xfd987193,0xa679438e,0x49b40821,
+    0xf61e2562,0xc040b340,0x265e5a51,0xe9b6c7aa,0xd62f105d,0x02441453,0xd8a1e681,0xe7d3fbc8,
+    0x21e1cde6,0xc33707d6,0xf4d50d87,0x455a14ed,0xa9e3e905,0xfcefa3f8,0x676f02d9,0x8d2a4c8a,
+    0xfffa3942,0x8771f681,0x6d9d6122,0xfde5380c,0xa4beea44,0x4bdecfa9,0xf6bb4b60,0xbebfbc70,
+    0x289b7ec6,0xeaa127fa,0xd4ef3085,0x04881d05,0xd9d4d039,0xe6db99e5,0x1fa27cf8,0xc4ac5665,
+    0xf4292244,0x432aff97,0xab9423a7,0xfc93a039,0x655b59c3,0x8f0ccc92,0xffeff47d,0x85845dd1,
+    0x6fa87e4f,0xfe2ce6e0,0xa3014314,0x4e0811a1,0xf7537e82,0xbd3af235,0x2ad7d2bb,0xeb86d391,
+  ];
+  const S = [7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22,
+             5, 9,14,20,5, 9,14,20,5, 9,14,20,5, 9,14,20,
+             4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23,
+             6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21];
+
+  let a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
+  const rotl = (x: number, n: number) => ((x << n) | (x >>> (32 - n))) >>> 0;
+  for (let chunk = 0; chunk < padLen; chunk += 64) {
+    const M: number[] = new Array(16);
+    for (let j = 0; j < 16; j++) M[j] = dv.getUint32(chunk + j * 4, true);
+    let A = a0, B = b0, C = c0, D = d0;
+    for (let j = 0; j < 64; j++) {
+      let F: number, g: number;
+      if (j < 16) { F = (B & C) | ((~B) & D); g = j; }
+      else if (j < 32) { F = (D & B) | ((~D) & C); g = (5 * j + 1) % 16; }
+      else if (j < 48) { F = B ^ C ^ D; g = (3 * j + 5) % 16; }
+      else { F = C ^ (B | (~D)); g = (7 * j) % 16; }
+      F = (F + A + K[j]! + M[g]!) >>> 0;
+      A = D;
+      D = C;
+      C = B;
+      B = (B + rotl(F, S[j]!)) >>> 0;
+    }
+    a0 = (a0 + A) >>> 0;
+    b0 = (b0 + B) >>> 0;
+    c0 = (c0 + C) >>> 0;
+    d0 = (d0 + D) >>> 0;
+  }
+  const digest = new Uint8Array(16);
+  const ddv = new DataView(digest.buffer);
+  ddv.setUint32(0, a0, true);
+  ddv.setUint32(4, b0, true);
+  ddv.setUint32(8, c0, true);
+  ddv.setUint32(12, d0, true);
+  return digest;
 }
 
 /* re-exports used by callers */
