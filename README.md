@@ -1,141 +1,110 @@
 # tramo
 
-> Workflow-document-of-truth visual editor + portable runtime. Node-based automation primitives with the same patch-and-agent shape as [htmlstudio](https://github.com/jhd3197/htmlstudio) — the doc is plain JSON, every action is a typed patch, and the same spec runs in the browser today and on servers tomorrow.
+> Embed a workflow editor in your app. Pick the integrations you need. Get JSON out. Run it in JS or Python.
 
-`tramo` is what you get when you take htmlstudio's "the document is the source of truth, every action is a typed patch, humans and LLMs edit through the same channel" pattern and apply it to node-based workflows instead of HTML pages.
+`tramo` is to workflows what [GrapesJS](https://grapesjs.com/) is to landing-page editors: a library you drop into a host app to ship a fully-configurable, agent-friendly automation builder. The document is plain JSON, every action is a typed patch, humans and LLMs edit through the same channel, and the same JSON runs in the browser, on a Node server, in a CLI job, or in Python.
 
 ```
- user clicks the canvas        LLM tool-call emits
-     │                                │
-     ▼                                ▼
-   ┌───────────────── apply_patch ─────────────────┐
-   │                                                │
-   ▼                                                ▼
- WorkflowDoc (JSON)  ◄──── one source of truth ────►  the same doc
+ user clicks / drags        LLM tool-call emits
+       │                            │
+       ▼                            ▼
+   ┌─────────────── apply_patch ───────────────┐
+   │                                            │
+   ▼                                            ▼
+ WorkflowDoc (JSON)  ◄── one source of truth ──►  same doc
    │
    ▼
- tramo-runtime    ◄── topo-sort + execute the graph
+ tramo runtime  (JS or Python) — topo-sort + execute the graph
    │
    ▼
  nodeResults + per-node events
 ```
 
-## Packages
+## Install
 
-| Package | Role |
-|---|---|
-| **`tramo-spec`** | The wire contract. Doc model, typed `Patch` union, pure utilities (`applyPatch`, `topoSort`, …), and the canonical `BUILTIN_NODES` registry. Zero deps, runs anywhere. Bumping `SPEC_VERSION` is the only way to break the format. |
-| **`tramo`** | The editor. React components (`Canvas`, `NodeInspector`, `NodeMenu`, `RightRail`, `useWorkflow`) and `tramo/agent` JSON Schema + provider tool specs. Depends on `tramo-spec`. |
-| **`tramo-runtime`** | The reference TypeScript runtime — `run(doc, registry, options)`, `BUILTIN_EXECUTORS` matching the editor's built-in nodes, trigger drivers. Browser + Node + serverless. Depends on `tramo-spec` (no editor dep). |
-| **`tramo-runtime-node`** | CLI wrapper around `tramo-runtime`. Provides the `tramo` binary for running and validating workflow JSON files from a shell, CI job, or `cron` entry. |
-
-All four live in this workspace; npm workspaces resolves them locally during dev.
-
-The split exists because the *spec* — what a tramo workflow is on the wire — outlives any one runtime. A Python runtime, a CLI wrapper, or a future hosted runner all consume the same `tramo-spec` package the browser editor emits.
-
-## The pattern
-
-Same as htmlstudio:
-
-1. **One source of truth.** Here it's a `WorkflowDoc` JSON object — `{ version, nodes, edges, meta }`.
-2. **Stable IDs** stamped on every node and edge so patches target them unambiguously (`n_xxxxxxxxxx`, `e_xxxxxxxxxx`).
-3. **A small, typed `Patch` union** that covers every editable action — `add-node`, `update-node-config`, `update-node`, `remove-node`, `add-edge`, `remove-edge`, `set-full-doc`. (No `move-node`: positions are auto-computed by the canvas from the DAG and are not stored on the doc.)
-4. **Pure `applyPatch(doc, patch)`** returns a new doc. No in-place mutation.
-5. **Same surface for humans and agents.** The editor produces patches when you drag/connect/edit. The `tramo/agent` layer exports a JSON Schema for the union plus Anthropic/OpenAI tool specs — an LLM can build or edit the workflow through exactly the same channel.
-
-## Quick start
+One package for the batteries-included setup:
 
 ```bash
-npm install
-npm run build       # builds both packages
-npm run demo        # → http://127.0.0.1:5181
+npm install tramo react react-dom
 ```
-
-The demo shows a node palette, the canvas (rendered by tramo's own canvas engine — no XYFlow), an inspector, and a **Run** button that executes the current doc through `tramo-runtime` and streams per-node events into a log at the bottom.
-
-## Core API (the spec)
-
-Everything you need to build, query, or validate a doc lives in `tramo-spec` — no React, no `fetch`, runs anywhere.
 
 ```ts
-import {
-  emptyDoc,
-  applyPatch,
-  applyPatches,
-  newNodeId,
-  newEdgeId,
-  BUILTIN_REGISTRY,
-  SPEC_VERSION,
-  type Patch,
-  type WorkflowDoc,
-} from 'tramo-spec';
-
-let doc: WorkflowDoc = emptyDoc();
-
-// Add a manual trigger. Positions are derived by the canvas from the
-// edge graph — there is no `position` field on the doc.
-doc = applyPatch(doc, {
-  kind: 'add-node',
-  node: {
-    id: newNodeId(),
-    type: 'manual-trigger',
-    config: { payload: '{"hello":"world"}' },
-  },
-}).doc;
+import { Canvas, RightRail, useWorkflow } from 'tramo';
+import { BUILTIN_REGISTRY, emptyDoc } from 'tramo/spec';
+import { run, BUILTIN_EXECUTOR_REGISTRY } from 'tramo/runtime';
+import 'tramo/styles.css';
 ```
 
-## Running the workflow
-
-### From code
-
-```ts
-import { run, BUILTIN_EXECUTOR_REGISTRY } from 'tramo-runtime';
-
-const result = await run(doc, BUILTIN_EXECUTOR_REGISTRY, {
-  trigger: { user: 'juan' },
-  onEvent: (e) => console.log(e),
-});
-
-if (result.ok) {
-  console.log('Final results:', result.nodeResults);
-}
-```
-
-### From the shell
-
-`tramo-runtime-node` ships a `tramo` binary that runs the same engine against a saved JSON file. The browser editor and the CLI consume the same `tramo-spec` — what you author in the canvas runs identically on a server.
+Or pick exactly what you need (server-only, custom integrations, etc.):
 
 ```bash
-# One-shot: run a workflow and stream per-node events
-npx tramo run workflow.json
-npx tramo run workflow.json --trigger '{"user":"juan"}'
-
-# Static check: spec version, known node types, edge endpoints
-npx tramo validate workflow.json
+npm install @tramo/spec @tramo/runtime    # no editor, no React
+npm install @tramo/editor                  # the React canvas/inspector
+npm install @tramo/cli                     # `tramo run` / `tramo validate` binaries
+npm install @tramo/gmail @tramo/github     # the integration packs you actually use
 ```
 
-Exit codes: `0` on success, `1` on parse error, missing file, version mismatch, unknown node type, or any node failure. Drop-in suitable for `cron`, CI steps, GitHub Actions, etc.
+## Pick your integrations
 
-## React editor
+Every brand ships as a standalone npm package — `@tramo/gmail`, `@tramo/github`, `@tramo/telegram`, `@tramo/notion`, `@tramo/openai`, `@tramo/anthropic`, `@tramo/linear`, `@tramo/airtable`, `@tramo/stripe`, `@tramo/discord`. Install only the ones you want; nothing else ends up in your bundle.
+
+```ts
+import { BUILTIN_PACK, combinePacks } from 'tramo/runtime';
+import GMAIL from '@tramo/gmail';
+import GITHUB from '@tramo/github';
+import TELEGRAM from '@tramo/telegram';
+
+const { nodes, executors } = combinePacks([
+  BUILTIN_PACK,    // http-request, js-transform, if, switch, loops, vars, sub-flows, …
+  GMAIL,           // gmail-send, gmail-reply, gmail-search, …
+  GITHUB,          // github-issue-create, github-pr-create, …
+  TELEGRAM,        // telegram-send-message, telegram-send-photo, …
+]);
+```
+
+The umbrella `tramo` package re-exports every brand pack from `tramo/integrations/<brand>` for convenience; tree-shaking drops unused brands from your bundle.
+
+```ts
+import GMAIL from 'tramo/integrations/gmail';
+import GITHUB from 'tramo/integrations/github';
+// `tramo/integrations/stripe` is never loaded → never shipped.
+```
+
+## Embed in your app
+
+A complete embedded editor in under 30 lines:
 
 ```tsx
+import { useState } from 'react';
+import {
+  Canvas, RightRail, useWorkflow,
+} from 'tramo';
+import {
+  emptyDoc, BUILTIN_REGISTRY, type WorkflowDoc,
+} from 'tramo/spec';
+import { combinePacks, BUILTIN_PACK } from 'tramo/runtime';
+import GMAIL from 'tramo/integrations/gmail';
+import GITHUB from 'tramo/integrations/github';
 import 'tramo/styles.css';
-import { Canvas, RightRail, useWorkflow } from 'tramo/react';
-import { BUILTIN_REGISTRY, emptyDoc } from 'tramo-spec';
 
-export function Editor() {
+const { nodes: registry } = combinePacks([BUILTIN_PACK, GMAIL, GITHUB]);
+
+export function MyEditor({ initial, onSave }: {
+  initial: WorkflowDoc;
+  onSave: (doc: WorkflowDoc) => void;
+}) {
   const workflow = useWorkflow({
-    registry: BUILTIN_REGISTRY,
-    loadDoc: () => emptyDoc(),
-    saveDoc: (doc) => console.log('persist', doc),
+    registry,
+    loadDoc: () => initial,
+    saveDoc: onSave,           // ← receives WorkflowDoc on every change
   });
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', height: '100vh' }}>
-      <Canvas workflow={workflow} registry={BUILTIN_REGISTRY} />
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', height: '100vh' }}>
+      <Canvas workflow={workflow} registry={registry} />
       <RightRail
         selection={workflow.selection}
-        registry={BUILTIN_REGISTRY}
+        registry={registry}
         onApply={workflow.applyPatch}
         onClose={workflow.clearSelection}
         saveState={workflow.saveState}
@@ -145,156 +114,238 @@ export function Editor() {
 }
 ```
 
-## Agent integration
+Pass `agent` props to the `RightRail` to enable the built-in LLM tab — your users can describe what they want and an agent patches the doc through exactly the same `apply_patch` surface a human would.
 
-`tramo/agent` ships everything you need to let an LLM build or edit workflows through the same patch surface:
+## The JSON contract
 
-```ts
-import {
-  buildPatchToolSpec,
-  validatePatch,
-  formatDocContext,
-  TWEAK_SYSTEM_PROMPT,
-} from 'tramo/agent';
-import { BUILTIN_REGISTRY, applyPatch } from 'tramo-spec';
-import Anthropic from '@anthropic-ai/sdk';
+A `WorkflowDoc` is just JSON. This same payload moves between editor, JS runtime, Python runtime, file system, database — it's the *only* portable thing in tramo.
 
-const tools = buildPatchToolSpec(BUILTIN_REGISTRY);
-
-const client = new Anthropic();
-const response = await client.messages.create({
-  model: 'claude-opus-4-7',
-  max_tokens: 1024,
-  system: `${TWEAK_SYSTEM_PROMPT}\n\n${formatDocContext(doc)}`,
-  tools: [tools.anthropic],
-  messages: [{ role: 'user', content: 'Add a log node after the http-request.' }],
-});
-
-for (const block of response.content) {
-  if (block.type === 'tool_use' && block.name === 'apply_patch') {
-    const patch = validatePatch(block.input); // throws on shape mismatch
-    doc = applyPatch(doc, patch).doc;
-  }
+```jsonc
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "n_uz1c4c9y0r",
+      "type": "manual-trigger",
+      "label": "Run with sample user",
+      "config": { "payload": "{\"user\":\"jhd3197\"}" }
+    },
+    {
+      "id": "n_a1b2c3d4e5",
+      "type": "http-request",
+      "label": "Fetch GitHub user",
+      "config": {
+        "url": "https://api.github.com/users/{{user}}",
+        "method": "GET",
+        "timeoutMs": 8000
+      }
+    },
+    {
+      "id": "n_5cm3uymovp",
+      "type": "gmail-send",
+      "config": {
+        "to": "team@example.com",
+        "subject": "{{steps.fetch_github_user.name}} hit {{steps.fetch_github_user.followers}} followers",
+        "body": "Profile: {{steps.fetch_github_user.html_url}}"
+      }
+    }
+  ],
+  "edges": [
+    { "id": "e_aa11bb22cc", "source": "n_uz1c4c9y0r", "target": "n_a1b2c3d4e5" },
+    { "id": "e_dd33ee44ff", "source": "n_a1b2c3d4e5", "target": "n_5cm3uymovp" }
+  ],
+  "meta": {}
 }
 ```
 
-The schema generated by `buildPatchToolSpec(registry)` constrains `node.type` to the registry's known ids, so the model can only insert types you've actually registered.
+Notice what's *not* in the doc: no node positions, no canvas state, no editor cache. Positions are derived from the DAG by the layout engine — the same JSON renders identically across editors.
 
-## Built-in nodes (v0.1)
+## Run the same JSON anywhere
 
-| Category | Node | Notes |
-|---|---|---|
-| trigger | `manual-trigger` | Started by clicking Run; emits the configured payload. |
-| trigger | `webhook-trigger` | HTTP endpoint registered by the webhook trigger driver. |
-| trigger | `cron-trigger` | Fires on a 5-field cron expression. |
-| action | `http-request` | Native `fetch`, JSON/text auto-decoding, timeout, error port. |
-| action | `log` | Writes to the run-event logger; passes input through. |
-| transform | `js-transform` | Runs a `Function`-body expression with `input` and `config` in scope. |
-| transform | `template` | `{{path.to.value}}` interpolation against the input. |
-| logic | `if` | Routes input to the `yes` or `no` port based on a condition. |
-| logic | `merge` | Combines fan-in inputs (object / array / first-non-null). |
-| ai | `ai-prompt` | Anthropic / OpenAI / mock providers via direct HTTP — no SDK dep. |
+### In JavaScript
 
-Register more via the **node-pack convention** below — a single bundle that ships both the editor definition and the runtime executor with one import.
+```ts
+import { run, BUILTIN_EXECUTOR_REGISTRY } from 'tramo/runtime';
+
+const result = await run(doc, BUILTIN_EXECUTOR_REGISTRY, {
+  trigger: { user: 'jhd3197' },
+  onEvent: (e) => console.log(e),
+});
+```
+
+### From the shell
+
+```bash
+npx @tramo/cli run workflow.json --trigger '{"user":"jhd3197"}'
+npx @tramo/cli validate workflow.json
+```
+
+Exit codes are CI-friendly: `0` on success, `1` on parse / version / node failure.
+
+### In Python (sibling runtime)
+
+```python
+from tramo import run_workflow, load_doc
+
+doc = load_doc("workflow.json")
+result = run_workflow(doc, trigger={"user": "jhd3197"})
+```
+
+`tramo-py` consumes the same `WorkflowDoc` JSON the JS editor emits. Same spec, same node ids, same `steps.*` semantics — different host language.
+
+## Cross-node references
+
+Every node's output is published to a per-run `steps` map keyed by both its id and a slug derived from its label. Templates and JS expressions can read any *already-completed* upstream step, not just the immediate parent.
+
+```text
+{{steps.fetch_github_user.followers}}    ← in any template field
+steps.fetch_github_user.followers >= 10  ← in a JS condition
+```
+
+Renaming a step rewrites downstream references automatically; id-keyed lookups (`steps.n_uz1c4c9y0r.x`) keep working unconditionally.
+
+## Built-in nodes
+
+| Category | Nodes |
+|---|---|
+| **trigger** | `manual-trigger`, `webhook-trigger`, `cron-trigger` |
+| **action** | `http-request`, `http-respond`, `mcp-tool-call`, `delay`, `log` |
+| **transform** | `js-transform`, `template`, `json-parse`, `json-stringify` |
+| **logic** | `if`, `switch`, `merge` |
+| **loops** | `for-each` (inline body), `loop-start` / `loop-end` (subgraph body) |
+| **state** | `set-var`, `increment-var`, `append-var` (the per-run `vars` map) |
+| **sub-flow** | `flow-input`, `flow-output`, `call-flow` (recursive workflow invocation) |
+| **ai** | `ai-prompt` (Anthropic / OpenAI / mock via direct HTTP) |
+
+Plus brand operations from every installed `@tramo/<brand>` pack (62 operations across the 10 first-party brands).
 
 ## Custom node packs
 
-A `NodePack` bundles a `NodeDefinition` (UI metadata) with its matching `NodeExecutor` (runtime behaviour) as one distributable unit. Pack authors ship an npm package whose default export is a `NodePack`; consumers merge any number of packs into the registries the editor and runtime each consume.
+A `NodePack` bundles a `NodeDefinition` (editor metadata) with its matching `NodeExecutor` (runtime behaviour) as a single distributable unit. Every brand pack uses the same API:
 
 ```ts
-// my-pack.ts — what a third-party pack ships
-import type { NodeDefinition } from 'tramo-spec';
-import { defineNodePack, type NodeExecutor } from 'tramo-runtime';
+import type { NodeDefinition } from 'tramo/spec';
+import { defineNodePack, type NodeExecutor } from 'tramo/runtime';
 
-const uppercaseDefinition: NodeDefinition = {
+const definition: NodeDefinition = {
   id: 'uppercase',
   name: 'Uppercase',
   category: 'transform',
-  description: 'Upper-case the string input.',
   icon: 'Type',
   inputs: [{ key: 'in', label: 'In', type: 'string' }],
   outputs: [{ key: 'out', label: 'Out', type: 'string' }],
   fields: [],
 };
 
-const uppercaseExecutor: NodeExecutor = {
+const executor: NodeExecutor = {
   id: 'uppercase',
   execute: (ctx) => ({ out: String(ctx.inputs.in ?? '').toUpperCase() }),
 };
 
-export const UPPERCASE_PACK = defineNodePack({
+export default defineNodePack({
   id: 'example-uppercase',
   name: 'Uppercase example pack',
   version: '0.1.0',
-  entries: [{ definition: uppercaseDefinition, executor: uppercaseExecutor }],
+  entries: [{ definition, executor }],
 });
 ```
 
+`defineNodePack` validates the bundle at construction time. `combinePacks` throws on cross-pack id collisions — silent shadowing is never allowed; to replace a built-in, omit it from your `BUILTIN_PACK` and substitute deliberately.
+
+## MCP server import
+
+Any MCP server can be imported as a tile in the integration picker. The editor introspects the server's tool list and synthesises a node definition per tool; the runtime dispatches calls via JSON-RPC under the `mcp-tool-call:<server>:<tool>` id. Servers persist in `WorkflowDoc.meta.mcpServers` so the same import follows the doc.
+
+## Agent integration
+
 ```ts
-// app.tsx — what the app does to load it
-import { BUILTIN_PACK, combinePacks, run } from 'tramo-runtime';
-import { Canvas, useWorkflow } from 'tramo/react';
-import { UPPERCASE_PACK } from './my-pack.js';
+import {
+  buildPatchToolSpec, validatePatch,
+  formatDocContext, TWEAK_SYSTEM_PROMPT,
+} from 'tramo/agent';
+import { applyPatch } from 'tramo/spec';
+import Anthropic from '@anthropic-ai/sdk';
 
-const { nodes, executors } = combinePacks([BUILTIN_PACK, UPPERCASE_PACK]);
+const tools = buildPatchToolSpec(registry);
+const client = new Anthropic();
+const response = await client.messages.create({
+  model: 'claude-opus-4-7',
+  max_tokens: 1024,
+  system: `${TWEAK_SYSTEM_PROMPT}\n\n${formatDocContext(doc)}`,
+  tools: [tools.anthropic],
+  messages: [{ role: 'user', content: 'Add a Telegram notification after the If on the no branch.' }],
+});
 
-const workflow = useWorkflow({ registry: nodes, /* … */ });
-await run(doc, executors);
+for (const block of response.content) {
+  if (block.type === 'tool_use' && block.name === 'apply_patch') {
+    doc = applyPatch(doc, validatePatch(block.input)).doc;
+  }
+}
 ```
 
-`defineNodePack` validates the bundle at construction time — every entry's `definition.id` must equal its `executor.id`, no duplicate ids within the pack, and the pack id itself must be a slug (optional one namespace prefix: `my-org/slack`).
+The schema generated by `buildPatchToolSpec(registry)` constrains `node.type` to ids the registry actually knows — the model can only insert nodes you've registered, and node configs are schema-validated against each definition's `fields`.
 
-`combinePacks` throws on cross-pack id collisions. To intentionally replace a built-in, build a custom pack that omits the original and substitute it in your `combinePacks` call — silent shadowing is never allowed.
+## Packages
 
-The built-in nodes ship through the same convention as `BUILTIN_PACK`, so the pack API is dogfooded by tramo itself.
+| Package | Role |
+|---|---|
+| **`tramo`** | Umbrella meta-package. Install this for the batteries-included setup — pulls editor + spec + runtime + every first-party brand pack and exposes them via subpath exports (`tramo/react`, `tramo/spec`, `tramo/runtime`, `tramo/agent`, `tramo/integrations/<brand>`). |
+| **`@tramo/spec`** | The wire contract. Doc model, typed `Patch` union, pure utilities (`applyPatch`, `topoSort`, `buildStepSlugMap`, …), and the built-in node registry. Zero runtime deps beyond `nanoid`. |
+| **`@tramo/editor`** | The React editor. `Canvas`, `NodeInspector`, `RightRail`, `useWorkflow`, `AgentChat`, plus the `tramo/agent` JSON-Schema/tool-spec emitters. |
+| **`@tramo/runtime`** | Reference TypeScript executor — `run(doc, registry, options)`, `BUILTIN_EXECUTOR_REGISTRY` matching the editor's built-ins, trigger drivers, NodePack helpers (`defineNodePack`, `combinePacks`). |
+| **`@tramo/cli`** | `tramo run` / `tramo validate` binaries for executing workflow JSON from a shell, CI, or `cron`. |
+| **`@tramo/gmail`** etc. | Per-brand NodePacks. 10 first-party brands. Each one ships independently; install only what you use. |
+
+The split exists because the *spec* — what a tramo workflow is on the wire — outlives any one runtime. A Python runtime, a CLI, or a future hosted runner all consume the same `@tramo/spec` package the browser editor emits.
 
 ## Design principles
 
-- **Doc = JSON.** No proprietary scene graph, no schema migrations baked into the library. The JSON you save is the JSON the editor mutates.
+- **Doc = JSON.** No proprietary scene graph, no positions baked in, no schema migrations buried in the library. The JSON you save is the JSON the editor mutates.
+- **Spec / editor / runtime split.** The spec is the contract; the editor and runtime each depend on the spec, never on each other. Swap in a different runtime (Node CLI, Python, hosted) without touching the editor.
 - **Agent-native.** Every patch maps 1:1 to an LLM tool-call; humans and agents go through the same surface.
-- **Tiny core, opt-in layers.** `tramo-spec` has one runtime dep (`nanoid`). React and agent layers ship as separate subpath exports.
-- **Spec / editor / runtime split.** The spec is the contract; the editor and the runtime each depend on the spec, never on each other. Swap in a different runtime (Node CLI, future Python, hosted) without touching the editor.
+- **Opt-in integrations.** Brand operations are separate npm packages. A Lambda function that only ships `@tramo/spec + @tramo/runtime + @tramo/gmail` is ~50KB total.
+- **No silent shadowing.** Pack id collisions throw; replacing a built-in is always deliberate.
 
 ## Roadmap
 
 ### Portable runtimes
-A tramo doc is just JSON; the goal is for that JSON to run anywhere the user wants — not just in the browser tab where it was authored.
-
-- **`tramo-runtime-py`** — Python sibling of `tramo-runtime`. Same `tramo-spec` JSON, parallel executor implementations of every built-in node. Unlocks Lambda / Airflow / pandas-heavy users. *Under consideration; depends on demand.*
-- **`tramo-runtime-server`** — long-running host with webhook listener + cron scheduler, so `webhook-trigger` and `cron-trigger` work outside the browser. *Later.*
+- **`tramo-py`** — Python sibling. Same `@tramo/spec` JSON, parallel executor implementations of every built-in node. Cross-node `steps.*` and sub-flow trio still being ported.
+- **`@tramo/server`** — long-running host with webhook listener + cron scheduler so `webhook-trigger` / `cron-trigger` work outside the browser.
 
 ### Executor improvements
 - Parallel execution within a topological layer.
 - Per-node retry / backoff config.
-- Sub-workflows (a node whose `execute` runs another doc).
 - Streaming variant of `run()` (yields events as they happen).
 - Persistent workflow state for long-running runs (resume after crash).
 
-### Spec & tooling
-- VS Code extension that opens `.tramo.json` files in the editor.
-
 ### Shipped
-- ✅ `tramo-spec` extracted as the standalone wire contract, with `SPEC_VERSION` enforced by the runtime on every run.
-- ✅ `tramo-runtime-node` — `tramo run` / `tramo validate` CLI for executing workflows outside the browser.
-- ✅ Node-pack convention — `defineNodePack`, `combinePacks`, `BUILTIN_PACK`. Third-party node packs ship as a single bundle; the built-ins flow through the same API.
-- ✅ Own canvas engine — no XYFlow dependency; auto-layout from the DAG.
-- ✅ Multi-output branches (`if` node's `yes`/`no` anchors).
+- ✅ Cross-node references via per-run `steps.<slug-or-id>.path`, surfaced in the var picker, rewritten on rename.
+- ✅ Sub-flow trio (`flow-input` / `flow-output` / `call-flow`) for composing workflows.
+- ✅ Switch node with dynamic ports; `for-each` (inline) and `loop-start`/`loop-end` (subgraph) loop constructs.
+- ✅ Per-run `vars` map mutated by `set-var` / `increment-var` / `append-var`.
+- ✅ MCP server import — tiles + tools become first-class nodes.
+- ✅ Brand integration packs — 10 first-party brands, 62 operations.
+- ✅ Webhook + cron triggers; `http-respond` for shaping HTTP responses.
+- ✅ Own canvas engine — no XYFlow dep; auto-layout from the DAG.
+- ✅ Multi-output branches (If `yes`/`no`, switch cases).
 - ✅ Per-node `runAfter` policy (`on-success` / `on-error` / `always`).
+- ✅ Node-pack convention — `defineNodePack`, `combinePacks`; built-ins flow through the same API.
+- ✅ `@tramo/cli` — `tramo run` / `tramo validate`.
 
 ## Develop
 
 ```bash
 npm install
-npm run build              # tsc + sass across both packages
-npm test                   # vitest across both packages
-npm run demo               # → http://127.0.0.1:5181
+npm run build       # all packages
+npm test            # vitest across all packages
+npm run demo        # → http://127.0.0.1:5181
 ```
 
 ## Inspiration
 
-- [htmlstudio](https://github.com/jhd3197/htmlstudio) — same pattern, applied to HTML.
+- [GrapesJS](https://grapesjs.com/) — embeddable visual editor; same shape, different domain.
+- [htmlstudio](https://github.com/jhd3197/htmlstudio) — the document-of-truth + typed-patch pattern.
 - [n8n](https://n8n.io/) / [Zapier](https://zapier.com/) — the workflow product space.
-- [XYFlow / React Flow](https://reactflow.dev/) — the canvas.
 
 ## License
 
