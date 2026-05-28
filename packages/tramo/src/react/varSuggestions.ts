@@ -9,7 +9,9 @@
  */
 
 import {
+  buildStepSlugMap,
   getIncomingEdges,
+  resolveOutputs,
   type NodeRegistry,
   type WorkflowDoc,
   type WorkflowNode,
@@ -18,8 +20,14 @@ import {
 export interface VarSuggestion {
   /** Path to insert between `{{ }}`. */
   path: string;
-  /** Label shown in the picker UI. */
+  /** Label shown in the picker UI (technical mono form, e.g. `{{steps.x.y}}`). */
   label: string;
+  /**
+   * Human-readable display string shown as the *primary* label in the
+   * picker. Falls back to `label` when omitted. Examples: `Login`,
+   * `Yes branch`, `Whole output`.
+   */
+  displayName?: string;
   /** Human-readable origin (e.g. node name or port). */
   sourceLabel: string;
   /** Group header — usually the upstream node's display name. */
@@ -60,15 +68,16 @@ export function getVarSuggestions(
     out.push({
       path: `vars.${name}`,
       label: `{{vars.${name}}}`,
+      displayName: name,
       sourceLabel: def?.name ?? node.type,
       group: 'Workflow variables',
     });
   }
 
-  // 2) Per-edge upstream values (the original behaviour).
+  // 2) Per-edge upstream values — direct input. Keeps the bare `{{key}}`
+  //    form available for the immediate parent so simple chains read cleanly.
   const incoming = getIncomingEdges(doc, nodeId);
-  if (incoming.length === 0) return dedupe(out);
-
+  const directParentIds = new Set(incoming.map((e) => e.source));
   for (const edge of incoming) {
     const upstream = doc.nodes.find((n) => n.id === edge.source);
     if (!upstream) continue;
@@ -80,6 +89,7 @@ export function getVarSuggestions(
     out.push({
       path: 'value',
       label: '{{value}}',
+      displayName: 'Whole output',
       sourceLabel: `entire payload from ${group}`,
       group,
     });
@@ -94,6 +104,7 @@ export function getVarSuggestions(
         out.push({
           path: k,
           label: `{{${k}}}`,
+          displayName: humanizeKey(k),
           sourceLabel: previewValue((wireValue as Record<string, unknown>)[k]),
           group,
         });
@@ -108,6 +119,77 @@ export function getVarSuggestions(
         out.push({
           path: p.key,
           label: `{{${p.key}}}`,
+          displayName: p.label || humanizeKey(p.key),
+          sourceLabel: `${p.label} port`,
+          group,
+        });
+      }
+    }
+  }
+
+  // 3) `steps.<slug>.<key>` — every ancestor (and every other completed
+  //    node from the most recent run) becomes addressable, not just the
+  //    immediate parents. This is what lets a Telegram step reference
+  //    Fetch GitHub user even though Gmail is wired between them.
+  const { idToSlug } = buildStepSlugMap(doc, (type) => registry.get(type));
+  const ancestors = collectAncestors(doc, nodeId);
+  // Also surface any node that produced a result on the most recent run,
+  // even if it's not a structural ancestor — useful when wiring is in
+  // progress and the user has run the workflow once.
+  if (opts.results) {
+    for (const id of Object.keys(opts.results)) {
+      if (id !== nodeId) ancestors.add(id);
+    }
+  }
+
+  // Order matches the doc so the picker lists upstreams in roughly the
+  // same order as the canvas. Direct parents are skipped here because
+  // they already appear above with the bare `{{key}}` form — listing them
+  // again as `steps.<slug>.key` is noise.
+  for (const node of doc.nodes) {
+    if (!ancestors.has(node.id)) continue;
+    if (directParentIds.has(node.id)) continue;
+    const def = registry.get(node.type);
+    const slug = idToSlug.get(node.id) ?? node.id;
+    const group = node.label ?? def?.name ?? node.type;
+
+    const result = opts.results?.[node.id];
+    const stepValue = unwrapStepValue(result);
+    if (stepValue && typeof stepValue === 'object' && !Array.isArray(stepValue)) {
+      const keys = Object.keys(stepValue as Record<string, unknown>).slice(0, perNodeLimit);
+      // The whole node value first.
+      out.push({
+        path: `steps.${slug}`,
+        label: `{{steps.${slug}}}`,
+        displayName: 'Whole output',
+        sourceLabel: `from ${group}`,
+        group,
+      });
+      for (const k of keys) {
+        out.push({
+          path: `steps.${slug}.${k}`,
+          label: `{{steps.${slug}.${k}}}`,
+          displayName: humanizeKey(k),
+          sourceLabel: previewValue((stepValue as Record<string, unknown>)[k]),
+          group,
+        });
+      }
+    } else {
+      // No run results — fall back to declared output ports.
+      out.push({
+        path: `steps.${slug}`,
+        label: `{{steps.${slug}}}`,
+        displayName: 'Whole output',
+        sourceLabel: `from ${group}`,
+        group,
+      });
+      const ports = def ? resolveOutputs(def, node) : [];
+      for (const p of ports) {
+        if (p.key === 'out' && ports.length === 1) continue; // covered by {{steps.<slug>}}
+        out.push({
+          path: `steps.${slug}.${p.key}`,
+          label: `{{steps.${slug}.${p.key}}}`,
+          displayName: p.label ? `${p.label} branch` : humanizeKey(p.key),
           sourceLabel: `${p.label} port`,
           group,
         });
@@ -116,6 +198,44 @@ export function getVarSuggestions(
   }
 
   return dedupe(out);
+}
+
+/** "user_name" / "userName" / "user-name" → "User name". Falls back to
+ *  the raw key when nothing humanisable comes out. */
+function humanizeKey(key: string): string {
+  const spaced = key
+    .replace(/[_\-]+/g, ' ')
+    // camelCase → camel Case
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .trim();
+  if (!spaced) return key;
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function collectAncestors(doc: WorkflowDoc, nodeId: string): Set<string> {
+  const out = new Set<string>();
+  const stack: string[] = [nodeId];
+  while (stack.length > 0) {
+    const cur = stack.pop()!;
+    for (const e of getIncomingEdges(doc, cur)) {
+      if (e.source === nodeId) continue;
+      if (!out.has(e.source)) {
+        out.add(e.source);
+        stack.push(e.source);
+      }
+    }
+  }
+  return out;
+}
+
+/** Mirror runtime's `stepValue` — single-`out` results unwrap to the bare
+ *  value so `steps.fetch.foo` is the obvious read; multi-port results stay
+ *  as `{ port: value }` so consumers can pick a branch. */
+function unwrapStepValue(result: unknown): unknown {
+  if (result == null || typeof result !== 'object') return result;
+  const keys = Object.keys(result as Record<string, unknown>);
+  if (keys.length === 1 && keys[0] === 'out') return (result as Record<string, unknown>).out;
+  return result;
 }
 
 function pickWireValue(upstreamResult: unknown, sourcePort: string): unknown {

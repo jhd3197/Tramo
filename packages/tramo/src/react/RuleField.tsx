@@ -340,8 +340,18 @@ function ConditionView({
         ))}
       </select>
 
+      <button
+        type="button"
+        className="tr-rule__icon-btn"
+        onClick={remove}
+        title="Remove condition"
+        aria-label="Remove condition"
+      >
+        ×
+      </button>
+
       {!unary ? (
-        <>
+        <div className="tr-rule__row-rhs">
           <RightInput
             value={node.right}
             isExpr={!!node.rightIsExpr}
@@ -357,20 +367,8 @@ function ConditionView({
           >
             {node.rightIsExpr ? 'fx' : 'abc'}
           </button>
-        </>
-      ) : (
-        <div className="tr-rule__spacer" />
-      )}
-
-      <button
-        type="button"
-        className="tr-rule__icon-btn"
-        onClick={remove}
-        title="Remove condition"
-        aria-label="Remove condition"
-      >
-        ×
-      </button>
+        </div>
+      ) : null}
     </div>
   );
 }

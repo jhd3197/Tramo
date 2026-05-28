@@ -105,22 +105,29 @@ export function VarPicker({
     <div ref={rootRef} className="tr-var-picker" style={anchorStyle(anchor)}>
       {Array.from(groups.entries()).map(([group, items]) => (
         <div key={group} className="tr-var-picker__group">
-          <div className="tr-var-picker__group-head">{group}</div>
+          <div className="tr-var-picker__group-head" title={group}>{group}</div>
           {items.map((s) => {
             flatIndex += 1;
             const isActive = flatIndex === activeIndex;
+            const name = s.displayName ?? s.label;
             return (
               <button
                 key={`${group}-${s.path}`}
                 type="button"
                 className={`tr-var-picker__item${isActive ? ' tr-var-picker__item--active' : ''}`}
+                title={s.label}
                 onMouseDown={(e) => {
                   e.preventDefault();
                   onPick(s);
                 }}
               >
-                <span className="tr-var-picker__path">{s.label}</span>
-                <span className="tr-var-picker__hint">{s.sourceLabel}</span>
+                <span className="tr-var-picker__item-body">
+                  <span className="tr-var-picker__item-name">{name}</span>
+                  {s.sourceLabel ? (
+                    <span className="tr-var-picker__item-meta">{s.sourceLabel}</span>
+                  ) : null}
+                </span>
+                <span className="tr-var-picker__item-path">{s.label}</span>
               </button>
             );
           })}

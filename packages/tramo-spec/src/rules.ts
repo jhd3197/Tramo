@@ -16,6 +16,10 @@ export interface RuleEvalEnv {
   input: unknown;
   vars: Record<string, unknown>;
   config: Record<string, unknown>;
+  /** Per-run map of completed-node outputs, keyed by id and slug. Optional
+   *  for back-compat — older callers that don't pass it still evaluate
+   *  rules over input/vars/config. */
+  steps?: Record<string, unknown>;
 }
 
 export function emptyRuleGroup(): RuleGroup {
@@ -51,12 +55,13 @@ function evalExpr(expr: string, env: RuleEvalEnv): unknown {
   const src = (expr ?? '').trim();
   if (!src) return undefined;
   try {
-    const fn = new Function('input', 'vars', 'config', `return (${src});`) as (
+    const fn = new Function('input', 'vars', 'steps', 'config', `return (${src});`) as (
       input: unknown,
       vars: Record<string, unknown>,
+      steps: Record<string, unknown>,
       config: Record<string, unknown>,
     ) => unknown;
-    return fn(env.input, env.vars, env.config);
+    return fn(env.input, env.vars, env.steps ?? {}, env.config);
   } catch {
     return undefined;
   }

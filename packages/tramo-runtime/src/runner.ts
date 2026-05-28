@@ -21,7 +21,7 @@
  * visited so the outer iteration skips past them.
  */
 
-import { topoSort, getIncomingEdges, getOutgoingEdges, SPEC_VERSION } from 'tramo-spec';
+import { topoSort, getIncomingEdges, getOutgoingEdges, SPEC_VERSION, buildStepSlugMap } from 'tramo-spec';
 import type { WorkflowNode } from 'tramo-spec';
 import type {
   ExecutionContext,
@@ -57,6 +57,21 @@ export async function run(
   const runId = `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   const signal = options.signal ?? new AbortController().signal;
   const vars: Record<string, unknown> = {};
+
+  /* Per-run `steps` map exposed to templates/JS so any node can read any
+   * already-completed upstream's value. Keyed by both id and slug; values
+   * are the natural emission (single-port → bare, multi-port → port map).
+   * Slugs come from node.label or node.type — the runner doesn't see
+   * NodeDefinitions, so we don't fall back to def.name here. */
+  const steps: Record<string, unknown> = {};
+  const { idToSlug } = buildStepSlugMap(doc, () => undefined);
+
+  const recordStep = (nodeId: string, result: NodeExecutionResult) => {
+    const value = stepValue(result);
+    steps[nodeId] = value;
+    const slug = idToSlug.get(nodeId);
+    if (slug) steps[slug] = value;
+  };
 
   /* 0. spec-version compatibility */
   if (doc.version !== SPEC_VERSION) {
@@ -205,6 +220,7 @@ export async function run(
       node,
       runId,
       vars,
+      steps,
       workflows: options.workflows,
       invokeFlow: (subDoc, subInput) =>
         run(subDoc, registry, {
@@ -221,6 +237,7 @@ export async function run(
       const result = await Promise.resolve(executor.execute(ctx));
       const normalized = normalizeResult(result);
       nodeResults[nodeId] = normalized;
+      recordStep(nodeId, normalized);
       emit({
         type: 'node-success',
         runId,
@@ -263,11 +280,12 @@ export async function run(
     const startInput = readInputForNode(startEdges, nodeResults, options.trigger).in;
     let items: unknown;
     try {
-      const fn = new Function('input', 'vars', `return (${plan.source || 'input'});`) as (
+      const fn = new Function('input', 'vars', 'steps', `return (${plan.source || 'input'});`) as (
         input: unknown,
         vars: Record<string, unknown>,
+        steps: Record<string, unknown>,
       ) => unknown;
-      items = fn(startInput, vars);
+      items = fn(startInput, vars, steps);
     } catch (err) {
       const msg = `loop-start ${plan.loopId}: source expression failed: ${(err as Error).message}`;
       emit({ type: 'node-error', runId, nodeId: plan.startId, error: msg, durationMs: 0 });
@@ -315,6 +333,7 @@ export async function run(
       }
       // Publish the iteration's value on the start node's ports.
       nodeResults[plan.startId] = { out: items[i], index: i };
+      recordStep(plan.startId, nodeResults[plan.startId]);
       erroredNodes.delete(plan.startId);
       skippedReason.delete(plan.startId);
 
@@ -353,6 +372,7 @@ export async function run(
     const endOutput =
       plan.mode === 'last' ? { out: lastIterValue } : { out: collected };
     nodeResults[plan.endId] = endOutput;
+    recordStep(plan.endId, endOutput);
     emit({ type: 'node-success', runId, nodeId: plan.endId, output: endOutput, durationMs: 0 });
 
     // Mark everything inside the loop as visited so the outer iteration
@@ -625,6 +645,19 @@ function normalizeResult(result: NodeExecutionResult): NodeExecutionResult {
   if (result == null) return undefined;
   if (typeof result === 'object' && !Array.isArray(result)) return result;
   return { out: result };
+}
+
+/**
+ * Unwrap a node's normalized result for the `steps` map. Single-port
+ * emitters publish the bare value (so `steps.fetch.foo` works the obvious
+ * way); multi-port emitters keep the port map so consumers can pick a
+ * branch (`steps.if_user.true`). Undefined results are stored as null.
+ */
+function stepValue(result: NodeExecutionResult): unknown {
+  if (result == null) return null;
+  const keys = Object.keys(result);
+  if (keys.length === 1 && keys[0] === 'out') return (result as Record<string, unknown>).out;
+  return result;
 }
 
 function makeLogger(emit: (level: 'debug' | 'info' | 'warn' | 'error', msg: string, data?: unknown) => void) {

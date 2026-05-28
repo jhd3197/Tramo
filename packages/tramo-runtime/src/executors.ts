@@ -81,7 +81,7 @@ const cronTrigger: NodeExecutor = {
 const httpRequest: NodeExecutor = {
   id: 'http-request',
   execute: async (ctx) => {
-    const url = renderTemplate(String(ctx.config.url ?? ''), ctx.inputs.in, ctx.vars);
+    const url = renderTemplate(String(ctx.config.url ?? ''), ctx.inputs.in, ctx.vars, ctx.steps);
     const method = String(ctx.config.method ?? 'GET');
     const headers = parseMaybeJson(ctx.config.headers) ?? {};
     const bodyRaw = ctx.config.body;
@@ -132,7 +132,7 @@ const mcpToolCall: NodeExecutor = {
     const rawArgs = ctx.config.arguments;
     let parsedArgs: unknown;
     if (typeof rawArgs === 'string') {
-      const rendered = renderTemplate(rawArgs, ctx.inputs.in, ctx.vars);
+      const rendered = renderTemplate(rawArgs, ctx.inputs.in, ctx.vars, ctx.steps);
       const trimmed = rendered.trim();
       if (trimmed === '') {
         parsedArgs = {};
@@ -210,7 +210,7 @@ const httpRespond: NodeExecutor = {
   execute: (ctx) => {
     const status = Number(ctx.config.status ?? 200);
     const bodyMode = String(ctx.config.bodyMode ?? 'json');
-    const bodyRendered = renderTemplate(String(ctx.config.body ?? ''), ctx.inputs.in, ctx.vars);
+    const bodyRendered = renderTemplate(String(ctx.config.body ?? ''), ctx.inputs.in, ctx.vars, ctx.steps);
     const extraHeaders = (parseMaybeJson(ctx.config.headers) ?? {}) as Record<string, string>;
 
     let body: unknown;
@@ -279,13 +279,14 @@ const jsTransform: NodeExecutor = {
   id: 'js-transform',
   execute: (ctx) => {
     const expression = String(ctx.config.expression ?? 'return input;');
-    const fn = new Function('input', 'vars', 'config', 'console', expression) as (
+    const fn = new Function('input', 'vars', 'steps', 'config', 'console', expression) as (
       input: unknown,
       vars: Record<string, unknown>,
+      steps: Record<string, unknown>,
       config: Record<string, unknown>,
       console: Console,
     ) => unknown;
-    const result = fn(ctx.inputs.in, ctx.vars, ctx.config, makeScopedConsole(ctx));
+    const result = fn(ctx.inputs.in, ctx.vars, ctx.steps, ctx.config, makeScopedConsole(ctx));
     return { out: result };
   },
 };
@@ -294,7 +295,7 @@ const template: NodeExecutor = {
   id: 'template',
   execute: (ctx) => {
     const tpl = String(ctx.config.template ?? '');
-    const rendered = renderTemplate(tpl, ctx.inputs.in, ctx.vars);
+    const rendered = renderTemplate(tpl, ctx.inputs.in, ctx.vars, ctx.steps);
     return { out: rendered };
   },
 };
@@ -303,11 +304,11 @@ const jsonParse: NodeExecutor = {
   id: 'json-parse',
   execute: (ctx) => {
     const source = String(ctx.config.source ?? 'input');
-    type Resolver = (input: unknown, vars: Record<string, unknown>) => unknown;
+    type Resolver = (input: unknown, vars: Record<string, unknown>, steps: Record<string, unknown>) => unknown;
     let value: unknown;
     try {
-      const fn = new Function('input', 'vars', `return (${source});`) as Resolver;
-      value = fn(ctx.inputs.in, ctx.vars);
+      const fn = new Function('input', 'vars', 'steps', `return (${source});`) as Resolver;
+      value = fn(ctx.inputs.in, ctx.vars, ctx.steps);
     } catch (err) {
       return { error: { message: (err as Error).message } };
     }
@@ -337,7 +338,7 @@ const jsonStringify: NodeExecutor = {
 const ifNode: NodeExecutor = {
   id: 'if',
   execute: (ctx) => {
-    const env = { input: ctx.inputs.in, vars: ctx.vars, config: ctx.config };
+    const env = { input: ctx.inputs.in, vars: ctx.vars, config: ctx.config, steps: ctx.steps };
 
     // Rule tree wins when present and non-empty; otherwise fall back to
     // the JS expression. This lets visual edits and legacy code coexist.
@@ -350,16 +351,17 @@ const ifNode: NodeExecutor = {
       type CondFn = (
         input: unknown,
         vars: Record<string, unknown>,
+        steps: Record<string, unknown>,
         config: Record<string, unknown>,
       ) => unknown;
       let fn: CondFn;
       try {
-        fn = new Function('input', 'vars', 'config', `return (${expression});`) as CondFn;
+        fn = new Function('input', 'vars', 'steps', 'config', `return (${expression});`) as CondFn;
       } catch {
         // Back-compat: pre-0.2 graphs stored function bodies (`return Boolean(input);`).
-        fn = new Function('input', 'vars', 'config', expression) as CondFn;
+        fn = new Function('input', 'vars', 'steps', 'config', expression) as CondFn;
       }
-      passed = Boolean(fn(ctx.inputs.in, ctx.vars, ctx.config));
+      passed = Boolean(fn(ctx.inputs.in, ctx.vars, ctx.steps, ctx.config));
     }
 
     ctx.log.info(passed ? 'condition: yes' : 'condition: no');
@@ -370,7 +372,7 @@ const ifNode: NodeExecutor = {
 const switchNode: NodeExecutor = {
   id: 'switch',
   execute: (ctx) => {
-    const env = { input: ctx.inputs.in, vars: ctx.vars, config: ctx.config };
+    const env = { input: ctx.inputs.in, vars: ctx.vars, config: ctx.config, steps: ctx.steps };
     const raw = ctx.config.cases;
     const cases: SwitchCase[] = Array.isArray(raw) ? (raw as SwitchCase[]) : [];
     for (const c of cases) {
@@ -448,13 +450,14 @@ const forEach: NodeExecutor = {
     // Resolve the source array. `input` and `vars` are the same bindings
     // exposed to JS Transform — keeping them consistent across nodes so
     // users learn one mental model.
-    const resolveSource = new Function('input', 'vars', `return (${sourceExpr});`) as (
+    const resolveSource = new Function('input', 'vars', 'steps', `return (${sourceExpr});`) as (
       input: unknown,
       vars: Record<string, unknown>,
+      steps: Record<string, unknown>,
     ) => unknown;
     let items: unknown;
     try {
-      items = resolveSource(ctx.inputs.in, ctx.vars);
+      items = resolveSource(ctx.inputs.in, ctx.vars, ctx.steps);
     } catch (err) {
       return { error: { message: `for-each: source expression failed: ${(err as Error).message}` } };
     }
@@ -462,11 +465,12 @@ const forEach: NodeExecutor = {
       return { error: { message: `for-each: source did not resolve to an array (got ${typeof items}).` } };
     }
 
-    const body = new Function('item', 'index', 'input', 'vars', bodySrc) as (
+    const body = new Function('item', 'index', 'input', 'vars', 'steps', bodySrc) as (
       item: unknown,
       index: number,
       input: unknown,
       vars: Record<string, unknown>,
+      steps: Record<string, unknown>,
     ) => unknown;
 
     if (mode === 'reduce-into-var') {
@@ -485,7 +489,7 @@ const forEach: NodeExecutor = {
       const item = items[i];
       let value: unknown;
       try {
-        value = body(item, i, ctx.inputs.in, ctx.vars);
+        value = body(item, i, ctx.inputs.in, ctx.vars, ctx.steps);
       } catch (err) {
         return { error: { message: `for-each body failed at index ${i}: ${(err as Error).message}` } };
       }
@@ -517,7 +521,7 @@ const setVar: NodeExecutor = {
   execute: (ctx) => {
     const name = String(ctx.config.name ?? '').trim();
     if (!name) throw new Error('set-var: name is required');
-    const raw = renderTemplate(String(ctx.config.value ?? ''), ctx.inputs.in, ctx.vars);
+    const raw = renderTemplate(String(ctx.config.value ?? ''), ctx.inputs.in, ctx.vars, ctx.steps);
     const parsed = parseMaybeJson(raw);
     ctx.vars[name] = parsed;
     ctx.log.info(`set vars.${name}`, parsed);
@@ -544,7 +548,7 @@ const appendVar: NodeExecutor = {
   execute: (ctx) => {
     const name = String(ctx.config.name ?? '').trim();
     if (!name) throw new Error('append-var: name is required');
-    const rendered = renderTemplate(String(ctx.config.value ?? ''), ctx.inputs.in, ctx.vars);
+    const rendered = renderTemplate(String(ctx.config.value ?? ''), ctx.inputs.in, ctx.vars, ctx.steps);
     const value = parseMaybeJson(rendered);
     const existing = ctx.vars[name];
     const arr = Array.isArray(existing) ? [...existing] : [];
@@ -600,7 +604,7 @@ const callFlow: NodeExecutor = {
     const rawInputs = ctx.config.inputs;
     let parsedInputs: unknown;
     if (typeof rawInputs === 'string') {
-      const rendered = renderTemplate(rawInputs, ctx.inputs.in, ctx.vars);
+      const rendered = renderTemplate(rawInputs, ctx.inputs.in, ctx.vars, ctx.steps);
       const trimmed = rendered.trim();
       if (trimmed === '') {
         parsedInputs = {};
@@ -652,7 +656,7 @@ const aiPrompt: NodeExecutor = {
   execute: async (ctx) => {
     const provider = String(ctx.config.provider ?? 'mock');
     const promptTpl = String(ctx.config.prompt ?? '');
-    const prompt = renderTemplate(promptTpl, ctx.inputs.in, ctx.vars);
+    const prompt = renderTemplate(promptTpl, ctx.inputs.in, ctx.vars, ctx.steps);
     const system = ctx.config.system ? String(ctx.config.system) : undefined;
     const model = String(ctx.config.model ?? 'claude-opus-4-7');
     const maxTokens = Number(ctx.config.maxTokens ?? 1024);
@@ -844,25 +848,37 @@ function parseMaybeJson(v: unknown): unknown {
 }
 
 /**
- * `{{path.to.field}}` interpolation. Paths that start with `vars.` resolve
- * against the workflow vars map; everything else resolves against the
- * input context. Falls back to the empty string when a path can't be
- * walked — this is forgiving on purpose so a missing field renders blank
- * instead of throwing.
+ * `{{path.to.field}}` interpolation. Roots:
+ *   - `vars.…`  → the workflow vars map
+ *   - `steps.…` → per-run map of completed-node outputs (keyed by id or slug)
+ *   - anything else → the immediate input value
+ *
+ * Falls back to the empty string when a path can't be walked — forgiving
+ * on purpose so a missing field renders blank instead of throwing.
  */
-function renderTemplate(template: string, context: unknown, vars?: Record<string, unknown>): string {
+function renderTemplate(
+  template: string,
+  context: unknown,
+  vars?: Record<string, unknown>,
+  steps?: Record<string, unknown>,
+): string {
   if (!template.includes('{{')) return template;
   return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, expr) => {
     const segments = String(expr).split('.').map((s) => s.trim());
     let cursor: unknown;
+    let path: string[];
     if (segments[0] === 'vars' && vars) {
       cursor = vars;
+      path = segments.slice(1);
+    } else if (segments[0] === 'steps' && steps) {
+      cursor = steps;
+      path = segments.slice(1);
     } else {
       cursor = context;
+      path = segments;
     }
-    const path = segments[0] === 'vars' && vars ? segments.slice(1) : segments;
     if (path.length === 0) {
-      // `{{vars}}` — return the whole vars map.
+      // `{{vars}}` / `{{steps}}` — return the whole map.
       return cursor == null ? '' : JSON.stringify(cursor);
     }
     for (const seg of path) {

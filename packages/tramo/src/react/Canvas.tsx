@@ -78,9 +78,9 @@ interface InsertionTarget {
   targetHandle?: string;
 }
 
-const NODE_WIDTH_DEFAULT = 300;
-// Total node height = category pill (~26px) + 6px gap + card (~84px) ≈ 116
-const NODE_HEIGHT_DEFAULT = 116;
+const NODE_WIDTH_DEFAULT = 260;
+// Total node height = category pill (~22px) + 4px gap + single-row card (~44px) ≈ 70
+const NODE_HEIGHT_DEFAULT = 70;
 const PLUS_OFFSET = 36; // distance below a leaf node for the trailing +
 
 export function Canvas({

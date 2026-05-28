@@ -252,27 +252,32 @@ function shortJSON(v: unknown): string {
 /* ====================================================================== */
 
 function buildExampleDoc(): WorkflowDoc {
-  const tId = newNodeId();
-  const httpId = newNodeId();
-  const pickId = newNodeId();
-  const tplId = newNodeId();
-  const logId = newNodeId();
+  const triggerId = newNodeId();
+  const fetchId = newNodeId();
+  const extractId = newNodeId();
+  const ifId = newNodeId();
+  const gmailId = newNodeId();
+  const telegramId = newNodeId();
 
+  // Demonstrates cross-node steps.* refs: Gmail and Telegram both pull
+  // `name` / `followers` / `repos` from the JS transform that sits BEHIND
+  // the If, even though only the If is wired directly to them.
   const seeded = applyPatches(emptyDoc(), [
     {
       kind: 'add-node',
       node: {
-        id: tId,
+        id: triggerId,
         type: 'manual-trigger',
-        config: { payload: '{"user":"juan"}' },
+        label: 'Run with sample user',
+        config: { payload: '{"user":"jhd3197"}' },
       },
     },
     {
       kind: 'add-node',
       node: {
-        id: httpId,
+        id: fetchId,
         type: 'http-request',
-        label: 'Fetch GitHub user {{user}}',
+        label: 'Fetch GitHub user',
         config: {
           url: 'https://api.github.com/users/{{user}}',
           method: 'GET',
@@ -285,34 +290,76 @@ function buildExampleDoc(): WorkflowDoc {
     {
       kind: 'add-node',
       node: {
-        id: pickId,
+        id: extractId,
         type: 'js-transform',
-        label: 'Pick name + public repos',
-        config: { expression: 'return { name: input.data.name, repos: input.data.public_repos };' },
+        label: 'Extract stats',
+        config: {
+          expression: [
+            'const u = input.data;',
+            'return {',
+            '  login: u.login,',
+            '  name: u.name || u.login,',
+            '  followers: u.followers,',
+            '  repos: u.public_repos,',
+            '  profile: u.html_url,',
+            '};',
+          ].join('\n'),
+        },
       },
     },
     {
       kind: 'add-node',
       node: {
-        id: tplId,
-        type: 'template',
-        label: 'Render greeting for {{name}}',
-        config: { template: '{{name}} has {{repos}} public repos.' },
+        id: ifId,
+        type: 'if',
+        label: 'Has 10+ followers?',
+        config: { condition: 'input.followers >= 10' },
       },
     },
     {
       kind: 'add-node',
       node: {
-        id: logId,
-        type: 'log',
-        label: 'Print {{name}}',
-        config: { level: 'info', prefix: 'github:' },
+        id: gmailId,
+        type: 'gmail-send',
+        label: 'Email celebration',
+        config: {
+          oauthToken: '',
+          to: 'team@example.com',
+          cc: '',
+          bcc: '',
+          subject: '🎉 {{steps.extract_stats.name}} hit {{steps.extract_stats.followers}} followers!',
+          body: [
+            'Hey team,',
+            '',
+            '{{steps.extract_stats.name}} ({{steps.extract_stats.login}}) just crossed 10 followers on GitHub.',
+            '',
+            'Followers: {{steps.extract_stats.followers}}',
+            'Public repos: {{steps.extract_stats.repos}}',
+            'Profile: {{steps.extract_stats.profile}}',
+          ].join('\n'),
+          bodyFormat: 'text',
+        },
       },
     },
-    { kind: 'add-edge', edge: { id: newEdgeId(), source: tId,    target: httpId } },
-    { kind: 'add-edge', edge: { id: newEdgeId(), source: httpId, target: pickId } },
-    { kind: 'add-edge', edge: { id: newEdgeId(), source: pickId, target: tplId } },
-    { kind: 'add-edge', edge: { id: newEdgeId(), source: tplId,  target: logId } },
+    {
+      kind: 'add-node',
+      node: {
+        id: telegramId,
+        type: 'telegram-send-message',
+        label: 'Telegram nudge',
+        config: {
+          botToken: '',
+          chatId: '',
+          text: '{{steps.extract_stats.name}} is at {{steps.extract_stats.followers}} followers ({{steps.extract_stats.repos}} repos) — small but mighty 💪',
+          parseMode: 'none',
+        },
+      },
+    },
+    { kind: 'add-edge', edge: { id: newEdgeId(), source: triggerId, target: fetchId } },
+    { kind: 'add-edge', edge: { id: newEdgeId(), source: fetchId,   target: extractId, sourceHandle: 'out' } },
+    { kind: 'add-edge', edge: { id: newEdgeId(), source: extractId, target: ifId } },
+    { kind: 'add-edge', edge: { id: newEdgeId(), source: ifId,      target: gmailId,    sourceHandle: 'yes' } },
+    { kind: 'add-edge', edge: { id: newEdgeId(), source: ifId,      target: telegramId, sourceHandle: 'no' } },
   ] satisfies Patch[]);
 
   return seeded.doc;

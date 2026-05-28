@@ -17,13 +17,14 @@ import {
   type KeyboardEvent,
   type RefObject,
 } from 'react';
-import type {
-  NodeDefinition,
-  NodeField,
-  NodeRegistry,
-  Patch,
-  WorkflowDoc,
-  WorkflowNode,
+import {
+  buildStepSlugMap,
+  type NodeDefinition,
+  type NodeField,
+  type NodeRegistry,
+  type Patch,
+  type WorkflowDoc,
+  type WorkflowNode,
 } from 'tramo-spec';
 import type { SaveState } from './useWorkflow.js';
 import { getVarSuggestions, type VarSuggestion } from './varSuggestions.js';
@@ -73,6 +74,7 @@ export function NodeInspector({
   runResults,
   flowRefs,
 }: NodeInspectorProps) {
+
   if (!selection) {
     return (
       <div className="tr-inspector tr-inspector--empty">
@@ -99,6 +101,8 @@ export function NodeInspector({
       key={selection.id}
       node={selection}
       def={def}
+      doc={doc}
+      registry={registry}
       onApply={onApply}
       onClose={onClose}
       saveState={saveState}
@@ -111,6 +115,8 @@ export function NodeInspector({
 function NodeInspectorBody({
   node,
   def,
+  doc,
+  registry,
   onApply,
   onClose,
   saveState,
@@ -119,6 +125,8 @@ function NodeInspectorBody({
 }: {
   node: WorkflowNode;
   def: NodeDefinition;
+  doc?: WorkflowDoc | null;
+  registry: NodeRegistry;
   onApply: (patch: Patch) => void;
   onClose?: () => void;
   saveState?: SaveState;
@@ -164,13 +172,37 @@ function NodeInspectorBody({
       // `label: undefined` so the doc drops the key on JSON serialization.
       const next = trimmed === '' ? undefined : trimmed;
       if (next === node.label) return;
+
+      // Compute the slug shift caused by the rename so we can rewrite
+      // `{{steps.<oldSlug>.…}}` references downstream. Only the renamed
+      // node's slug is rewritten — other nodes whose suffix happens to
+      // shift due to collision resolution keep working via id-keyed
+      // lookups at runtime.
+      let configPatches: Patch[] = [];
+      if (doc) {
+        const before = buildStepSlugMap(doc, (type) => registry.get(type));
+        const afterDoc: WorkflowDoc = {
+          ...doc,
+          nodes: doc.nodes.map((n) =>
+            n.id === node.id ? { ...n, label: next } : n,
+          ),
+        };
+        const after = buildStepSlugMap(afterDoc, (type) => registry.get(type));
+        const oldSlug = before.idToSlug.get(node.id);
+        const newSlug = after.idToSlug.get(node.id);
+        if (oldSlug && newSlug && oldSlug !== newSlug) {
+          configPatches = collectSlugRewrites(doc, node.id, oldSlug, newSlug);
+        }
+      }
+
       onApply({
         kind: 'update-node',
         id: node.id,
         patch: { label: next as string | undefined },
       });
+      for (const p of configPatches) onApply(p);
     },
-    [node.id, node.label, onApply],
+    [doc, node.id, node.label, onApply, registry],
   );
 
   return (
@@ -559,7 +591,13 @@ function PickerTextField({
     const r = el.getBoundingClientRect();
     // Anchor below the field — caret-precise positioning would need a
     // mirror element. The field is narrow so the picker reads naturally.
-    setAnchor({ left: r.left, top: r.bottom + 4 });
+    // Clamp horizontally so the (~380px) popover never spills off the
+    // viewport when the inspector sits flush against the right edge.
+    const PICKER_W = 380;
+    const MARGIN = 12;
+    const maxLeft = Math.max(MARGIN, window.innerWidth - PICKER_W - MARGIN);
+    const left = Math.min(Math.max(r.left, MARGIN), maxLeft);
+    setAnchor({ left, top: r.bottom + 4 });
   }, []);
 
   const handleChange = useCallback(
@@ -752,6 +790,42 @@ function SaveBadge({ state }: { state: SaveState }) {
   }[state.status];
   if (!label) return null;
   return <div className={`tr-save tr-save--${state.status}`}>{label}</div>;
+}
+
+/**
+ * Walk every other node's string config values; whenever one references
+ * `steps.<oldSlug>` (as a whole identifier — not part of a longer word),
+ * emit an update-node-config patch with the rewritten value. Templates
+ * and JS expressions share this — the runtime sees the same identifier
+ * in both `{{steps.X.y}}` and bare `steps.X.y`.
+ */
+function collectSlugRewrites(
+  doc: WorkflowDoc,
+  renamedNodeId: string,
+  oldSlug: string,
+  newSlug: string,
+): Patch[] {
+  // Escape regex meta in the slug. Slugs are [a-z0-9_] but be defensive.
+  const escaped = oldSlug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Word-boundary on either side prevents `fetch` matching inside
+  // `fetch_user`. JS `\b` works for [a-z0-9_] tokens.
+  const re = new RegExp(`\\bsteps\\.${escaped}\\b`, 'g');
+
+  const patches: Patch[] = [];
+  for (const n of doc.nodes) {
+    if (n.id === renamedNodeId) continue;
+    const updates: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(n.config ?? {})) {
+      if (typeof value !== 'string') continue;
+      if (!value.includes(`steps.${oldSlug}`)) continue;
+      const next = value.replace(re, `steps.${newSlug}`);
+      if (next !== value) updates[key] = next;
+    }
+    if (Object.keys(updates).length > 0) {
+      patches.push({ kind: 'update-node-config', id: n.id, config: updates });
+    }
+  }
+  return patches;
 }
 
 export default NodeInspector;

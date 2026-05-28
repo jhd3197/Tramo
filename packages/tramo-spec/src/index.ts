@@ -43,3 +43,4 @@ export {
   isRuleGroup,
   type RuleEvalEnv,
 } from './rules.js';
+export { slugify, nodeSlug, buildStepSlugMap } from './slug.js';

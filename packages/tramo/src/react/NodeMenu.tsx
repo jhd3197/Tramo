@@ -18,7 +18,7 @@ import {
   useState,
   type CSSProperties,
 } from 'react';
-import { MoreVertical, Trash2, AlertCircle, CheckCircle2, Infinity as InfinityIcon } from 'lucide-react';
+import { MoreVertical, Trash2, AlertCircle, CheckCircle2, Infinity as InfinityIcon, Pencil } from 'lucide-react';
 import type { Patch, RunAfter, WorkflowNode } from 'tramo-spec';
 
 export interface NodeMenuProps {
@@ -28,8 +28,11 @@ export interface NodeMenuProps {
 
 export function NodeMenu({ node, applyPatch }: NodeMenuProps) {
   const [open, setOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState<string>(node.label ?? '');
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
 
   // Close on outside click or Escape
   useEffect(() => {
@@ -38,9 +41,16 @@ export function NodeMenu({ node, applyPatch }: NodeMenuProps) {
       const t = e.target as Node;
       if (menuRef.current?.contains(t) || buttonRef.current?.contains(t)) return;
       setOpen(false);
+      setRenaming(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') {
+        if (renaming) {
+          setRenaming(false);
+          return;
+        }
+        setOpen(false);
+      }
     };
     document.addEventListener('mousedown', onDoc);
     document.addEventListener('keydown', onKey);
@@ -48,7 +58,16 @@ export function NodeMenu({ node, applyPatch }: NodeMenuProps) {
       document.removeEventListener('mousedown', onDoc);
       document.removeEventListener('keydown', onKey);
     };
-  }, [open]);
+  }, [open, renaming]);
+
+  useEffect(() => {
+    if (!renaming) return;
+    setRenameDraft(node.label ?? '');
+    requestAnimationFrame(() => {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    });
+  }, [renaming, node.label]);
 
   const setRunAfter = useCallback(
     (policy: RunAfter) => {
@@ -62,6 +81,16 @@ export function NodeMenu({ node, applyPatch }: NodeMenuProps) {
     applyPatch({ kind: 'remove-node', id: node.id });
     setOpen(false);
   }, [applyPatch, node.id]);
+
+  const commitRename = useCallback(() => {
+    const trimmed = renameDraft.trim();
+    const next = trimmed === '' ? undefined : trimmed;
+    if (next !== node.label) {
+      applyPatch({ kind: 'update-node', id: node.id, patch: { label: next as string | undefined } });
+    }
+    setRenaming(false);
+    setOpen(false);
+  }, [applyPatch, node.id, node.label, renameDraft]);
 
   const current: RunAfter = node.runAfter ?? 'on-success';
   const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
@@ -94,32 +123,80 @@ export function NodeMenu({ node, applyPatch }: NodeMenuProps) {
           onPointerMove={stop}
           onWheel={stop}
         >
-          <div className="tr-node-menu__section">Run after</div>
-          <MenuItem
-            icon={<CheckCircle2 size={14} />}
-            label="Previous succeeds"
-            active={current === 'on-success'}
-            onClick={() => setRunAfter('on-success')}
-          />
-          <MenuItem
-            icon={<AlertCircle size={14} />}
-            label="Previous errors"
-            active={current === 'on-error'}
-            onClick={() => setRunAfter('on-error')}
-          />
-          <MenuItem
-            icon={<InfinityIcon size={14} />}
-            label="Always"
-            active={current === 'always'}
-            onClick={() => setRunAfter('always')}
-          />
-          <div className="tr-node-menu__sep" />
-          <MenuItem
-            icon={<Trash2 size={14} />}
-            label="Delete this step"
-            onClick={deleteNode}
-            danger
-          />
+          {renaming ? (
+            <div className="tr-node-menu__rename">
+              <div className="tr-node-menu__section">Rename step</div>
+              <input
+                ref={renameInputRef}
+                type="text"
+                className="tr-input tr-node-menu__rename-input"
+                value={renameDraft}
+                placeholder={node.type}
+                spellCheck={false}
+                onChange={(e) => setRenameDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    commitRename();
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setRenaming(false);
+                  }
+                }}
+              />
+              <div className="tr-node-menu__rename-actions">
+                <button
+                  type="button"
+                  className="tr-node-menu__rename-btn"
+                  onClick={() => setRenaming(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="tr-node-menu__rename-btn tr-node-menu__rename-btn--primary"
+                  onClick={commitRename}
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <MenuItem
+                icon={<Pencil size={14} />}
+                label="Rename step"
+                onClick={() => setRenaming(true)}
+              />
+              <div className="tr-node-menu__sep" />
+              <div className="tr-node-menu__section">Run after</div>
+              <MenuItem
+                icon={<CheckCircle2 size={14} />}
+                label="Previous succeeds"
+                active={current === 'on-success'}
+                onClick={() => setRunAfter('on-success')}
+              />
+              <MenuItem
+                icon={<AlertCircle size={14} />}
+                label="Previous errors"
+                active={current === 'on-error'}
+                onClick={() => setRunAfter('on-error')}
+              />
+              <MenuItem
+                icon={<InfinityIcon size={14} />}
+                label="Always"
+                active={current === 'always'}
+                onClick={() => setRunAfter('always')}
+              />
+              <div className="tr-node-menu__sep" />
+              <MenuItem
+                icon={<Trash2 size={14} />}
+                label="Delete this step"
+                onClick={deleteNode}
+                danger
+              />
+            </>
+          )}
         </div>
       ) : null}
     </>

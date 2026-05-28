@@ -33,6 +33,17 @@ export interface ExecutionContext {
    */
   vars: Record<string, unknown>;
   /**
+   * Per-run map of every completed upstream node's emitted value, keyed
+   * by BOTH the node's id and its derived slug (so `{{steps.fetch_user.x}}`
+   * and `{{steps.n_abc.x}}` both work). Templates and JS bindings read
+   * from this to address nodes beyond the immediate upstream.
+   *
+   * Values are the "natural" output: a single-port emitter shows up bare;
+   * a multi-port emitter (e.g. `if`) shows up as `{ true|false: ... }`.
+   * Empty on the first node of a run.
+   */
+  steps: Record<string, unknown>;
+  /**
    * Catalog of callable workflows passed to the runner. The `call-flow`
    * executor looks up by id here. Undefined when the host didn't register
    * any sub-flows — `call-flow` then errors with a clear message.
