@@ -20,6 +20,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -27,6 +28,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { Edge } from './Edge.js';
 import { NodeView } from './NodeView.js';
 import { CATEGORY_META, IntegrationIcon, NodeIcon } from './icons.js';
@@ -126,12 +128,73 @@ export function Canvas({
   const [view, setView] = useState({ x: 0, y: 0, zoom: 1 });
   const panState = useRef<{ startX: number; startY: number; vx: number; vy: number } | null>(null);
 
+  /** Zoom around a focal point in wrapper-local pixels. Pins the world
+   *  point under (focalX, focalY) so it stays under the cursor / pinch
+   *  centre / button-press anchor. */
+  const zoomAt = useCallback(
+    (focalX: number, focalY: number, factor: number) => {
+      setView((v) => {
+        const nextZoom = clamp(v.zoom * factor, minZoom, maxZoom);
+        if (nextZoom === v.zoom) return v;
+        const worldX = (focalX - v.x) / v.zoom;
+        const worldY = (focalY - v.y) / v.zoom;
+        return {
+          zoom: nextZoom,
+          x: focalX - worldX * nextZoom,
+          y: focalY - worldY * nextZoom,
+        };
+      });
+    },
+    [maxZoom, minZoom],
+  );
+
+  /** Reset to zoom=1 and re-centre the way the initial layout effect does. */
+  const resetView = useCallback(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+    const rect = wrapper.getBoundingClientRect();
+    setView({ x: rect.width / 2, y: 60, zoom: 1 });
+  }, []);
+
+  /** Fit every node into the viewport with padding. No-op if the
+   *  layout hasn't computed yet or there are no nodes. */
+  const fitToView = useCallback(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper || !layout || layout.positions.size === 0) return;
+    const rect = wrapper.getBoundingClientRect();
+    // Bounding box in world coords. Node positions are (centerX, topY)
+    // with a fixed nodeWidth / nodeHeight (see NodeView's left: x - w/2).
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const p of layout.positions.values()) {
+      if (p.x - nodeWidth / 2 < minX) minX = p.x - nodeWidth / 2;
+      if (p.x + nodeWidth / 2 > maxX) maxX = p.x + nodeWidth / 2;
+      if (p.y < minY) minY = p.y;
+      if (p.y + nodeHeight > maxY) maxY = p.y + nodeHeight;
+    }
+    const PAD = 64;
+    const boxW = maxX - minX;
+    const boxH = maxY - minY;
+    const availW = Math.max(rect.width - PAD * 2, 1);
+    const availH = Math.max(rect.height - PAD * 2, 1);
+    const fitZoom = clamp(Math.min(availW / boxW, availH / boxH), minZoom, maxZoom);
+    const centerWorldX = (minX + maxX) / 2;
+    const centerWorldY = (minY + maxY) / 2;
+    setView({
+      zoom: fitZoom,
+      x: rect.width / 2 - centerWorldX * fitZoom,
+      y: rect.height / 2 - centerWorldY * fitZoom,
+    });
+  }, [layout, maxZoom, minZoom, nodeHeight, nodeWidth]);
+
   const onPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     // Only pan when clicking the canvas background. Anything interactive
     // (node, plus, popover) handles its own pointer events; capturing here
     // would steal the click before it reaches them.
     const target = e.target as HTMLElement;
-    if (target.closest('.tr-node-v2, .tr-plus, .tr-popover, .tr-popover-scrim, .tr-empty')) return;
+    if (target.closest('.tr-node-v2, .tr-plus, .tr-popover, .tr-popover-scrim, .tr-empty, .tr-canvas-controls')) return;
     if (e.button !== 0) return;
     clearSelection();
     panState.current = { startX: e.clientX, startY: e.clientY, vx: view.x, vy: view.y };
@@ -157,29 +220,21 @@ export function Canvas({
     (e: ReactWheelEvent<HTMLDivElement>) => {
       if (!wrapperRef.current) return;
       // Only respond to ctrl/meta + wheel for zoom; plain wheel pans vertically.
+      // Trackpad pinch on macOS arrives here as wheel + ctrlKey synthesised by
+      // the browser, so this path covers it transparently.
       const wantsZoom = e.ctrlKey || e.metaKey;
       const rect = wrapperRef.current.getBoundingClientRect();
       if (wantsZoom) {
         e.preventDefault();
         const cx = e.clientX - rect.left;
         const cy = e.clientY - rect.top;
-        setView((v) => {
-          const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-          const nextZoom = clamp(v.zoom * factor, minZoom, maxZoom);
-          // Keep the cursor pinned to the same canvas-space point.
-          const worldX = (cx - v.x) / v.zoom;
-          const worldY = (cy - v.y) / v.zoom;
-          return {
-            zoom: nextZoom,
-            x: cx - worldX * nextZoom,
-            y: cy - worldY * nextZoom,
-          };
-        });
+        const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+        zoomAt(cx, cy, factor);
       } else {
         setView((v) => ({ ...v, x: v.x - e.deltaX, y: v.y - e.deltaY }));
       }
     },
-    [maxZoom, minZoom],
+    [zoomAt],
   );
 
   /* ---------- layout ---------- */
@@ -205,12 +260,51 @@ export function Canvas({
 
   /* ---------- insertion popover ---------- */
   const [insertion, setInsertion] = useState<InsertionTarget | null>(null);
+  const [panning, setPanning] = useState(false);
 
+  // The picker can render up to ~560px tall. Before opening, we pan the
+  // world so the anchor `+` lands near the top of the canvas — that
+  // guarantees ~560+ px of free space below for the picker, no matter
+  // where on screen the user clicked. Computed explicitly (not as a
+  // delta) so the post-pan position is exact.
   const openInsertion = useCallback(
-    (target: InsertionTarget) => setInsertion(target),
-    [],
+    (target: InsertionTarget) => {
+      const wrapper = wrapperRef.current;
+      if (wrapper) {
+        const rect = wrapper.getBoundingClientRect();
+        const POPOVER_HEIGHT = 560;
+        const BOTTOM_PAD = 80; // breathing room between picker and viewport bottom
+        const ANCHOR_OFFSET = 18; // matches the +18 in InsertionPopover
+        // Where we'd like the anchor to land in viewport space, so the
+        // picker fits entirely above (vh - bottom-pad) with room to spare.
+        const minAnchorY = rect.top + 24;
+        const maxAnchorY = window.innerHeight - BOTTOM_PAD - POPOVER_HEIGHT - ANCHOR_OFFSET;
+        const idealAnchorY = Math.max(minAnchorY, Math.min(maxAnchorY, rect.top + 80));
+        // Solve for the view.y that places the anchor at idealAnchorY:
+        //   rect.top + target.screenY * zoom + newViewY + ANCHOR_OFFSET = idealAnchorY
+        const newViewY = idealAnchorY - rect.top - target.screenY * view.zoom - ANCHOR_OFFSET;
+        // Only pan when the new view.y meaningfully differs and the anchor
+        // is currently lower than ideal (we never push it further down).
+        if (newViewY < view.y - 8) {
+          setPanning(true);
+          setView((v) => ({ ...v, y: newViewY }));
+          window.setTimeout(() => setPanning(false), 220);
+        }
+      }
+      setInsertion(target);
+    },
+    [view.x, view.y, view.zoom],
   );
   const closeInsertion = useCallback(() => setInsertion(null), []);
+
+  // Pan the canvas by `dy` pixels (positive = world shifts down, anchor
+  // moves down with it; negative = world shifts up). Called by the picker
+  // when its measured size still doesn't fit after the preflight pan.
+  const requestCanvasPan = useCallback((dy: number) => {
+    setPanning(true);
+    setView((v) => ({ ...v, y: v.y + dy }));
+    window.setTimeout(() => setPanning(false), 220);
+  }, []);
 
   const handleInsert = useCallback(
     (def: NodeDefinition) => {
@@ -398,7 +492,7 @@ export function Canvas({
   return (
     <div
       ref={wrapperRef}
-      className="tr-canvas-v2"
+      className={`tr-canvas-v2${panning ? ' tr-canvas-v2--panning' : ''}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endPan}
@@ -490,10 +584,12 @@ export function Canvas({
         <InsertionPopover
           insertion={insertion}
           view={view}
+          wrapperRef={wrapperRef}
           registry={registry}
           onPick={handleInsert}
           onClose={closeInsertion}
           onAddMcp={openMcpAdd}
+          onRequestPan={requestCanvasPan}
         />
       )}
 
@@ -560,22 +656,35 @@ function bucketIdFor(def: NodeDefinition): string {
 function InsertionPopover({
   insertion,
   view,
+  wrapperRef,
   registry,
   onPick,
   onClose,
   onAddMcp,
+  onRequestPan,
 }: {
   insertion: InsertionTarget;
   view: { x: number; y: number; zoom: number };
+  wrapperRef: React.RefObject<HTMLDivElement | null>;
   registry: WorkflowHandle['registry'];
   onPick: (def: NodeDefinition) => void;
   onClose: () => void;
   /** Called when the picker's "+ MCP server" tile is clicked. Omitted while
    *  picking a trigger (MCP servers expose actions, not triggers). */
   onAddMcp?: () => void;
+  /** Ask the canvas to pan vertically by `dy` pixels (negative = pan up,
+   *  bringing the anchor higher in the viewport). The picker calls this
+   *  when its measured size still overflows after positioning. */
+  onRequestPan: (dy: number) => void;
 }) {
-  const left = insertion.screenX * view.zoom + view.x;
-  const top = insertion.screenY * view.zoom + view.y + 18;
+  // Anchor in viewport coords: convert canvas-local point to screen-fixed
+  // by adding the wrapper's bounding rect. The popover itself is portalled
+  // to document.body with position: fixed, so all clamping is one math.
+  const wrapperRect = wrapperRef.current?.getBoundingClientRect();
+  const wrapperLeft = wrapperRect?.left ?? 0;
+  const wrapperTop = wrapperRect?.top ?? 0;
+  const anchorLeft = wrapperLeft + insertion.screenX * view.zoom + view.x;
+  const anchorTop = wrapperTop + insertion.screenY * view.zoom + view.y + 18;
 
   const wantsTriggerOnly = insertion.mode === 'first';
   const headerText = wantsTriggerOnly ? 'Choose a trigger' : 'Choose an operation';
@@ -642,12 +751,123 @@ function InsertionPopover({
 
   const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
 
-  return (
+  // The popover is portalled to document.body and uses `position: fixed`,
+  // so left/top are viewport coordinates. We start hidden, measure, clamp,
+  // then reveal — this avoids any first-frame jump. A ResizeObserver
+  // re-clamps when the picker's size changes (search filtering, etc.).
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; ready: boolean }>({
+    left: anchorLeft,
+    top: anchorTop,
+    ready: false,
+  });
+
+  useLayoutEffect(() => {
+    const el = popoverRef.current;
+    if (!el) return;
+
+    const recompute = () => {
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      if (w === 0 || h === 0) return;
+      const margin = 16;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      // The anchor is the centre of the `+`; `anchorTop` is already offset
+      // 18px below it. The geometry above the `+` mirrors that 18px gap.
+      const anchorGap = 18;
+
+      // Horizontal: keep fully inside the viewport.
+      let nextLeft = anchorLeft;
+      if (nextLeft + w > vw - margin) nextLeft = vw - margin - w;
+      if (nextLeft < margin) nextLeft = margin;
+
+      // Vertical: pick the side with more free room. Place below when both
+      // sides fit and below has at least as much room — that matches the
+      // user's mental model (clicking + → menu drops down).
+      const spaceBelow = vh - margin - anchorTop;
+      const spaceAbove = (anchorTop - anchorGap * 2) - margin;
+      const fitsBelow = h <= spaceBelow;
+      const fitsAbove = h <= spaceAbove;
+
+      let nextTop: number;
+      if (fitsBelow && (!fitsAbove || spaceBelow >= spaceAbove)) {
+        nextTop = anchorTop;
+      } else if (fitsAbove) {
+        nextTop = anchorTop - anchorGap * 2 - h;
+      } else {
+        // Neither side fits the picker fully — pin to whichever edge gives
+        // more room.
+        nextTop = spaceBelow >= spaceAbove ? vh - margin - h : margin;
+      }
+      if (nextTop < margin) nextTop = margin;
+
+      // Fallback: if even after placement the picker would overflow the
+      // bottom of the viewport (e.g. anchor is too low and there isn't
+      // enough room above either), ask the canvas to pan up so the picker
+      // gets the room it needs. Cap the request so we don't shove the
+      // anchor off the top of the canvas.
+      const popoverBottom = nextTop + h;
+      const overflowBottom = popoverBottom - (vh - margin);
+      if (overflowBottom > 4) {
+        const wrapper = wrapperRef.current;
+        const headroom = wrapper ? Math.max(0, anchorTop - wrapper.getBoundingClientRect().top - 24) : overflowBottom;
+        const dy = -Math.min(overflowBottom, headroom);
+        if (dy < -4) {
+          onRequestPan(dy);
+          return; // a re-render will follow with the new anchor; skip setPos
+        }
+      }
+
+      setPos((cur) =>
+        cur.left === nextLeft && cur.top === nextTop && cur.ready
+          ? cur
+          : { left: nextLeft, top: nextTop, ready: true },
+      );
+    };
+
+    recompute();
+    const ro = new ResizeObserver(recompute);
+    ro.observe(el);
+    window.addEventListener('resize', recompute);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', recompute);
+    };
+  }, [anchorLeft, anchorTop, onRequestPan, wrapperRef]);
+
+  // Global Esc to close.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  // The scrim swallows wheel/pointer so canvas can't pan or zoom under us.
+  const swallow = (e: React.SyntheticEvent) => {
+    e.stopPropagation();
+  };
+
+  return createPortal(
     <>
-      <div className="tr-popover-scrim" onClick={onClose} />
       <div
-        className="tr-picker tr-picker--clean"
-        style={{ left, top }}
+        className="tr-popover-scrim tr-popover-scrim--fixed"
+        onClick={onClose}
+        onWheel={swallow}
+        onPointerDown={swallow}
+        onPointerMove={swallow}
+        onPointerUp={swallow}
+      />
+      <div
+        ref={popoverRef}
+        className={`tr-picker tr-picker--clean tr-picker--fixed${pos.ready ? ' is-ready' : ''}`}
+        style={{
+          left: pos.left,
+          top: pos.top,
+          visibility: pos.ready ? 'visible' : 'hidden',
+        }}
         onWheel={stop}
         onPointerDown={stop}
         onPointerMove={stop}
@@ -783,7 +1003,8 @@ function InsertionPopover({
           )}
         </div>
       </div>
-    </>
+    </>,
+    document.body,
   );
 }
 
