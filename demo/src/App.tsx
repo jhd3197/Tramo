@@ -20,6 +20,16 @@ import LINEAR from 'tramo/integrations/linear';
 import AIRTABLE from 'tramo/integrations/airtable';
 import STRIPE from 'tramo/integrations/stripe';
 import CLOUDFLARE from 'tramo/integrations/cloudflare';
+import GOOGLE_DRIVE from 'tramo/integrations/google-drive';
+import GOOGLE_SHEETS from 'tramo/integrations/google-sheets';
+import GOOGLE_TASKS from 'tramo/integrations/google-tasks';
+import OUTLOOK from 'tramo/integrations/outlook';
+import POSTGRES from 'tramo/integrations/postgres';
+import TWILIO from 'tramo/integrations/twilio';
+import YOUTUBE from 'tramo/integrations/youtube';
+import X_PACK from 'tramo/integrations/x';
+import TRELLO from 'tramo/integrations/trello';
+import BOX from 'tramo/integrations/box';
 import { SAMPLE_DOC, SUBFLOW_DOUBLER, SUBFLOW_GREETER } from './sample.js';
 
 /* Demo-only sub-flow catalog. A real host might persist these to a
@@ -52,6 +62,16 @@ const BRAND_PACKS = [
   { id: 'airtable',  name: 'Airtable',  pack: AIRTABLE },
   { id: 'stripe',    name: 'Stripe',    pack: STRIPE },
   { id: 'cloudflare', name: 'Cloudflare', pack: CLOUDFLARE },
+  { id: 'google-drive',  name: 'Google Drive',  pack: GOOGLE_DRIVE },
+  { id: 'google-sheets', name: 'Google Sheets', pack: GOOGLE_SHEETS },
+  { id: 'google-tasks',  name: 'Google Tasks',  pack: GOOGLE_TASKS },
+  { id: 'outlook',   name: 'Outlook',   pack: OUTLOOK },
+  { id: 'postgres',  name: 'PostgreSQL', pack: POSTGRES },
+  { id: 'twilio',    name: 'Twilio',    pack: TWILIO },
+  { id: 'youtube',   name: 'YouTube',   pack: YOUTUBE },
+  { id: 'x',         name: 'X',         pack: X_PACK },
+  { id: 'trello',    name: 'Trello',    pack: TRELLO },
+  { id: 'box',       name: 'Box',       pack: BOX },
 ] as const;
 
 function loadEnabledPacks(): Set<string> {

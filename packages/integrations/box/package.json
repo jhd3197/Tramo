@@ -1,0 +1,29 @@
+{
+  "name": "@tramo/box",
+  "version": "0.1.0",
+  "description": "Box integration pack for tramo — upload, share, download, list, delete files.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {
+    "tramo-spec": "0.1.0",
+    "tramo-runtime": "0.1.0"
+  },
+  "devDependencies": { "typescript": "^5.4.0" },
+  "keywords": ["tramo", "workflow", "integration", "box"],
+  "author": "Juan Denis",
+  "license": "MIT",
+  "engines": { "node": ">=18" }
+}

@@ -71,6 +71,46 @@
     "./integrations/cloudflare": {
       "types": "./dist/integrations/cloudflare.d.ts",
       "import": "./dist/integrations/cloudflare.js"
+    },
+    "./integrations/google-drive": {
+      "types": "./dist/integrations/google-drive.d.ts",
+      "import": "./dist/integrations/google-drive.js"
+    },
+    "./integrations/google-sheets": {
+      "types": "./dist/integrations/google-sheets.d.ts",
+      "import": "./dist/integrations/google-sheets.js"
+    },
+    "./integrations/google-tasks": {
+      "types": "./dist/integrations/google-tasks.d.ts",
+      "import": "./dist/integrations/google-tasks.js"
+    },
+    "./integrations/outlook": {
+      "types": "./dist/integrations/outlook.d.ts",
+      "import": "./dist/integrations/outlook.js"
+    },
+    "./integrations/postgres": {
+      "types": "./dist/integrations/postgres.d.ts",
+      "import": "./dist/integrations/postgres.js"
+    },
+    "./integrations/twilio": {
+      "types": "./dist/integrations/twilio.d.ts",
+      "import": "./dist/integrations/twilio.js"
+    },
+    "./integrations/youtube": {
+      "types": "./dist/integrations/youtube.d.ts",
+      "import": "./dist/integrations/youtube.js"
+    },
+    "./integrations/x": {
+      "types": "./dist/integrations/x.d.ts",
+      "import": "./dist/integrations/x.js"
+    },
+    "./integrations/trello": {
+      "types": "./dist/integrations/trello.d.ts",
+      "import": "./dist/integrations/trello.js"
+    },
+    "./integrations/box": {
+      "types": "./dist/integrations/box.d.ts",
+      "import": "./dist/integrations/box.js"
     }
   },
   "files": [
@@ -106,7 +146,17 @@
     "@tramo/linear": "0.1.0",
     "@tramo/airtable": "0.1.0",
     "@tramo/stripe": "0.1.0",
-    "@tramo/cloudflare": "0.1.0"
+    "@tramo/cloudflare": "0.1.0",
+    "@tramo/google-drive": "0.1.0",
+    "@tramo/google-sheets": "0.1.0",
+    "@tramo/google-tasks": "0.1.0",
+    "@tramo/outlook": "0.1.0",
+    "@tramo/postgres": "0.1.0",
+    "@tramo/twilio": "0.1.0",
+    "@tramo/youtube": "0.1.0",
+    "@tramo/x": "0.1.0",
+    "@tramo/trello": "0.1.0",
+    "@tramo/box": "0.1.0"
   },
   "devDependencies": {
     "typescript": "^5.4.0"
