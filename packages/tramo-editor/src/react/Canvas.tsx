@@ -29,6 +29,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { CanvasControls } from './CanvasControls.js';
 import { Edge } from './Edge.js';
 import { NodeView } from './NodeView.js';
 import { CATEGORY_META, IntegrationIcon, NodeIcon } from './icons.js';
@@ -155,6 +156,23 @@ export function Canvas({
     const rect = wrapper.getBoundingClientRect();
     setView({ x: rect.width / 2, y: 60, zoom: 1 });
   }, []);
+
+  /** Zoom step applied per toolbar +/- click. Slightly larger than the
+   *  wheel's 1.1 so a click feels like a deliberate jump. */
+  const BUTTON_ZOOM_STEP = 1.2;
+
+  const zoomAtCenter = useCallback(
+    (factor: number) => {
+      const wrapper = wrapperRef.current;
+      if (!wrapper) return;
+      const rect = wrapper.getBoundingClientRect();
+      zoomAt(rect.width / 2, rect.height / 2, factor);
+    },
+    [zoomAt],
+  );
+
+  const handleZoomIn = useCallback(() => zoomAtCenter(BUTTON_ZOOM_STEP), [zoomAtCenter]);
+  const handleZoomOut = useCallback(() => zoomAtCenter(1 / BUTTON_ZOOM_STEP), [zoomAtCenter]);
 
   /** Fit every node into the viewport with padding. No-op if the
    *  layout hasn't computed yet or there are no nodes. */
@@ -579,6 +597,15 @@ export function Canvas({
         {/* The empty-state EmptyPrompt below owns the first-insertion CTA,
             so no world-coord first + is rendered. */}
       </div>
+
+      <CanvasControls
+        zoom={view.zoom}
+        onZoomIn={handleZoomIn}
+        onZoomOut={handleZoomOut}
+        onReset={resetView}
+        onFit={fitToView}
+        fitDisabled={doc.nodes.length === 0}
+      />
 
       {insertion && (
         <InsertionPopover
