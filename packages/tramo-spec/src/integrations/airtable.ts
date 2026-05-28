@@ -20,6 +20,26 @@ export const DEFINITION: IntegrationDefinition = {
 
 export const NODES: NodeDefinition[] = [
   {
+    id: 'webhook-trigger:airtable:record-change',
+    integrationId: 'airtable',
+    name: 'Airtable · On Record Change',
+    operationName: 'On record change',
+    category: 'trigger',
+    description: 'Fires when Airtable posts a Webhooks API notification (record create / update / delete).',
+    icon: 'CloudDownload',
+    iconBrand: 'airtable',
+    color: COLOR,
+    inputs: [],
+    outputs: [{ key: 'out', label: 'Request', type: 'object' }],
+    fields: [
+      { key: 'path', type: 'text', label: 'Path', default: '/airtable/webhook' },
+      { key: 'method', type: 'select', label: 'Method', default: 'POST', options: [{ label: 'POST', value: 'POST' }] },
+      { key: 'baseId', type: 'text', label: 'Base ID (matched against payload)', default: 'appXXXXXXXX' },
+      { key: 'webhookId', type: 'text', label: 'Webhook ID', default: '', optional: true, help: 'Returned when you call POST /bases/{baseId}/webhooks. Use to filter.' },
+      { key: 'macSecret', type: 'secret', label: 'MAC secret', optional: true, help: 'Airtable signs payloads with X-Airtable-Content-MAC.' },
+    ],
+  },
+  {
     id: 'airtable-record-create',
     integrationId: 'airtable',
     name: 'Airtable · Create Record',

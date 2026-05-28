@@ -158,11 +158,25 @@ export const BUILTIN_PACK: NodePack = defineNodePack({
   name: 'Tramo built-ins',
   version: '0.1.0',
   entries: BUILTIN_NODES.map((definition) => {
-    const executor = BUILTIN_EXECUTORS.find((e) => e.id === definition.id);
-    if (!executor) {
-      throw new Error(`Internal: no executor registered for built-in node "${definition.id}"`);
+    const direct = BUILTIN_EXECUTORS.find((e) => e.id === definition.id);
+    if (direct) return { definition, executor: direct };
+
+    // Prefix fallback — brand-namespaced ids like `webhook-trigger:github:issue`
+    // reuse the base executor (`webhook-trigger`). We generate a proxy so the
+    // pack convention's `definition.id === executor.id` invariant still
+    // holds; the proxy delegates to the base executor's execute function.
+    const colon = definition.id.indexOf(':');
+    if (colon > 0) {
+      const baseId = definition.id.slice(0, colon);
+      const base = BUILTIN_EXECUTORS.find((e) => e.id === baseId);
+      if (base) {
+        return {
+          definition,
+          executor: { id: definition.id, execute: base.execute },
+        };
+      }
     }
-    return { definition, executor };
+    throw new Error(`Internal: no executor registered for built-in node "${definition.id}"`);
   }),
   integrations: [...BUILTIN_INTEGRATIONS],
 });

@@ -587,11 +587,17 @@ function InsertionPopover({
     );
   }, [registry, wantsTriggerOnly]);
 
-  // Integrations with at least one available op.
+  // Integrations with at least one node matching the current mode. In
+  // trigger-only mode we only count brand nodes whose category is
+  // `trigger` so the tile row stays consistent with the rows below.
   const integrationsAvailable = useMemo(() => {
-    if (wantsTriggerOnly) return [] as IntegrationDefinition[];
     const byInt = registry.byIntegration();
-    return registry.integrations().filter((i) => (byInt[i.id]?.length ?? 0) > 0);
+    return registry.integrations().filter((i) => {
+      const nodes = byInt[i.id] ?? [];
+      return nodes.some((n) =>
+        wantsTriggerOnly ? n.category === 'trigger' : n.category !== 'trigger',
+      );
+    });
   }, [registry, wantsTriggerOnly]);
 
   const hasCoreNonIntegration = useMemo(() => {
@@ -683,7 +689,7 @@ function InsertionPopover({
           ) : null}
         </div>
 
-        {!wantsTriggerOnly && (integrationsAvailable.length > 0 || hasCoreNonIntegration) ? (
+        {(integrationsAvailable.length > 0 || hasCoreNonIntegration) ? (
           <div className="tr-picker__featured" onWheel={stop}>
             {hasCoreNonIntegration ? (
               <FeaturedTile
@@ -708,7 +714,7 @@ function InsertionPopover({
                 }
               />
             ))}
-            {onAddMcp ? (
+            {onAddMcp && !wantsTriggerOnly ? (
               <button
                 type="button"
                 className="tr-picker__feat tr-picker__feat--add"

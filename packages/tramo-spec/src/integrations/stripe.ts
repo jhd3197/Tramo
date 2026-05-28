@@ -21,6 +21,25 @@ export const DEFINITION: IntegrationDefinition = {
 
 export const NODES: NodeDefinition[] = [
   {
+    id: 'webhook-trigger:stripe:event',
+    integrationId: 'stripe',
+    name: 'Stripe · On Event',
+    operationName: 'On event',
+    category: 'trigger',
+    description: 'Fires when Stripe POSTs a webhook event (payment_intent.succeeded, customer.created, …).',
+    icon: 'CloudDownload',
+    iconBrand: 'stripe',
+    color: COLOR,
+    inputs: [],
+    outputs: [{ key: 'out', label: 'Request', type: 'object' }],
+    fields: [
+      { key: 'path', type: 'text', label: 'Path', default: '/stripe/events', help: 'Register this URL as a Stripe Endpoint and copy the signing secret.' },
+      { key: 'method', type: 'select', label: 'Method', default: 'POST', options: [{ label: 'POST', value: 'POST' }] },
+      { key: 'eventTypes', type: 'text', label: 'Filter event types (comma-separated, blank = all)', default: 'payment_intent.succeeded,charge.refunded', optional: true },
+      { key: 'signingSecret', type: 'secret', label: 'Signing secret (whsec_…)', optional: true, help: 'Stripe sends `Stripe-Signature`; validate downstream.' },
+    ],
+  },
+  {
     id: 'stripe-customer-create',
     integrationId: 'stripe',
     name: 'Stripe · Create Customer',

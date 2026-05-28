@@ -20,6 +20,25 @@ export const DEFINITION: IntegrationDefinition = {
 
 export const NODES: NodeDefinition[] = [
   {
+    id: 'webhook-trigger:linear:issue-change',
+    integrationId: 'linear',
+    name: 'Linear · On Issue Change',
+    operationName: 'On issue change',
+    category: 'trigger',
+    description: 'Fires when Linear posts an Issue webhook (create / update / remove).',
+    icon: 'CloudDownload',
+    iconBrand: 'linear',
+    color: COLOR,
+    inputs: [],
+    outputs: [{ key: 'out', label: 'Request', type: 'object' }],
+    fields: [
+      { key: 'path', type: 'text', label: 'Path', default: '/linear/issues', help: 'Configure this URL in Linear → Settings → API → Webhooks.' },
+      { key: 'method', type: 'select', label: 'Method', default: 'POST', options: [{ label: 'POST', value: 'POST' }] },
+      { key: 'actions', type: 'text', label: 'Filter actions (create, update, remove)', default: '', optional: true },
+      { key: 'secret', type: 'secret', label: 'Signing secret', optional: true, help: 'Linear sends `Linear-Signature`; validate downstream.' },
+    ],
+  },
+  {
     id: 'linear-issue-create',
     integrationId: 'linear',
     name: 'Linear · Create Issue',

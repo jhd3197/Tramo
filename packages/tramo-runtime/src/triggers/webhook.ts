@@ -42,7 +42,14 @@ export function webhook(
   registry: ExecutorRegistry,
   options: Omit<RunOptions, 'trigger'> = {},
 ): WebhookTriggerHandle {
-  const webhookNodes = doc.nodes.filter((n) => n.type === 'webhook-trigger');
+  // Match the bare `webhook-trigger` node as well as the brand-prefixed
+  // variants (`webhook-trigger:github:issue`, `webhook-trigger:stripe:event`,
+  // …) — those reuse this executor via the prefix-fallback dispatch in
+  // createExecutorRegistry. The router has to know about the same
+  // convention so brand triggers actually receive their HTTP requests.
+  const webhookNodes = doc.nodes.filter(
+    (n) => n.type === 'webhook-trigger' || n.type.startsWith('webhook-trigger:'),
+  );
 
   const routes = webhookNodes.map((n) => ({
     method: String(n.config.method ?? 'POST').toUpperCase(),

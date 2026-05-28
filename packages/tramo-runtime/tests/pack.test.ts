@@ -91,11 +91,18 @@ describe('defineNodePack', () => {
 
 describe('BUILTIN_PACK', () => {
   it('exposes every built-in executor through the pack convention', () => {
+    // Every base executor must appear as a pack-entry definition id, either
+    // directly or as the prefix of a brand-namespaced id (e.g.
+    // `webhook-trigger` is reached by `webhook-trigger:github:issue`). This
+    // guarantees no executor ships orphaned without a pack entry that can
+    // dispatch to it.
     expect(BUILTIN_PACK.id).toBe('builtin');
-    expect(BUILTIN_PACK.entries.length).toBe(BUILTIN_EXECUTORS.length);
+    expect(BUILTIN_PACK.entries.length).toBeGreaterThanOrEqual(BUILTIN_EXECUTORS.length);
     const packIds = new Set(BUILTIN_PACK.entries.map((e) => e.definition.id));
     for (const exec of BUILTIN_EXECUTORS) {
-      expect(packIds.has(exec.id)).toBe(true);
+      const reached = packIds.has(exec.id) ||
+        [...packIds].some((id) => id.startsWith(`${exec.id}:`));
+      expect(reached).toBe(true);
     }
   });
 });

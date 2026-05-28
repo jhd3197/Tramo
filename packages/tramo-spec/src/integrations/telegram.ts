@@ -20,6 +20,25 @@ export const DEFINITION: IntegrationDefinition = {
 
 export const NODES: NodeDefinition[] = [
   {
+    id: 'webhook-trigger:telegram:update',
+    integrationId: 'telegram',
+    name: 'Telegram · On Bot Update',
+    operationName: 'On bot update',
+    category: 'trigger',
+    description: 'Fires when Telegram delivers a bot update (message, callback_query, edited_message, …).',
+    icon: 'CloudDownload',
+    iconBrand: 'telegram',
+    color: COLOR,
+    inputs: [],
+    outputs: [{ key: 'out', label: 'Request', type: 'object' }],
+    fields: [
+      { key: 'path', type: 'text', label: 'Path', default: '/telegram/updates', help: 'Register this URL via setWebhook against the Telegram Bot API.' },
+      { key: 'method', type: 'select', label: 'Method', default: 'POST', options: [{ label: 'POST', value: 'POST' }] },
+      { key: 'secretToken', type: 'secret', label: 'Secret token (X-Telegram-Bot-Api-Secret-Token)', optional: true },
+      { key: 'updateKinds', type: 'text', label: 'Filter update kinds (e.g. message,callback_query)', default: 'message', optional: true },
+    ],
+  },
+  {
     id: 'telegram-send-message',
     integrationId: 'telegram',
     name: 'Telegram · Send Message',

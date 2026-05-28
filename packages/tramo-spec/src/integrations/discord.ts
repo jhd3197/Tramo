@@ -20,6 +20,24 @@ export const DEFINITION: IntegrationDefinition = {
 
 export const NODES: NodeDefinition[] = [
   {
+    id: 'webhook-trigger:discord:interaction',
+    integrationId: 'discord',
+    name: 'Discord · On Interaction',
+    operationName: 'On interaction',
+    category: 'trigger',
+    description: 'Fires on slash-command / button / modal interactions from Discord.',
+    icon: 'CloudDownload',
+    iconBrand: 'discord',
+    color: COLOR,
+    inputs: [],
+    outputs: [{ key: 'out', label: 'Request', type: 'object' }],
+    fields: [
+      { key: 'path', type: 'text', label: 'Path', default: '/discord/interactions', help: 'Set this URL as the Interactions Endpoint in your Discord application.' },
+      { key: 'method', type: 'select', label: 'Method', default: 'POST', options: [{ label: 'POST', value: 'POST' }] },
+      { key: 'publicKey', type: 'secret', label: 'Application public key', optional: true, help: 'Used to verify the Ed25519 signature on incoming interactions.' },
+    ],
+  },
+  {
     id: 'discord-webhook-send',
     integrationId: 'discord',
     name: 'Discord · Send Message (Webhook)',
