@@ -692,12 +692,13 @@
   &__tile {
     --tile-accent: var(--tr-accent);
     --tile-bg: var(--tr-accent-soft);
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: 4px;
-    padding: 10px;
-    min-height: 76px;
+    padding: 12px 10px 10px;
+    min-height: 80px;
     background: var(--tr-surface);
     border: 1px solid var(--tr-border);
     border-radius: 8px;
@@ -705,17 +706,18 @@
     text-align: left;
     font: inherit;
     color: var(--tr-text);
-    transition: border-color 120ms, background 120ms, transform 120ms;
+    overflow: hidden;
+    transition: border-color 120ms, background 120ms, transform 120ms, box-shadow 120ms;
 
     &:hover {
       border-color: var(--tile-accent);
-      background: var(--tile-bg);
+      box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
       transform: translateY(-1px);
     }
 
     &-icon {
-      width: 24px;
-      height: 24px;
+      width: 28px;
+      height: 28px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -734,11 +736,32 @@
       margin-top: auto;
     }
 
+    /* Most-used tiles are smaller and don't render a meta line. */
+    &--quick {
+      min-height: 66px;
+      padding: 10px;
+    }
+
+    /* Integration tiles get a brand-coloured top stripe + accent on hover. */
+    &--integration {
+      &::before {
+        content: '';
+        position: absolute;
+        inset: 0 0 auto 0;
+        height: 3px;
+        background: var(--tile-accent);
+        opacity: 0.95;
+      }
+      &:hover { background: var(--tile-bg, var(--tr-accent-soft)); }
+    }
+
+    /* Core-category tiles use a soft tint background. */
     &--core {
       background: var(--tile-bg);
       border-color: transparent;
 
       .tr-picker__tile-icon { color: var(--tile-accent); }
+      &:hover { background: var(--tile-bg); }
     }
   }
 

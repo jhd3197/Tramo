@@ -201,6 +201,37 @@ const template: NodeExecutor = {
   },
 };
 
+const jsonParse: NodeExecutor = {
+  id: 'json-parse',
+  execute: (ctx) => {
+    const source = String(ctx.config.source ?? 'input');
+    type Resolver = (input: unknown, vars: Record<string, unknown>) => unknown;
+    let value: unknown;
+    try {
+      const fn = new Function('input', 'vars', `return (${source});`) as Resolver;
+      value = fn(ctx.inputs.in, ctx.vars);
+    } catch (err) {
+      return { error: { message: (err as Error).message } };
+    }
+    if (typeof value !== 'string') {
+      return { error: { message: `json-parse: source did not resolve to a string (got ${typeof value})` } };
+    }
+    try {
+      return { out: JSON.parse(value) };
+    } catch (err) {
+      return { error: { message: (err as Error).message } };
+    }
+  },
+};
+
+const jsonStringify: NodeExecutor = {
+  id: 'json-stringify',
+  execute: (ctx) => {
+    const indent = Math.max(0, Math.min(8, Number(ctx.config.indent ?? 0)));
+    return { out: JSON.stringify(ctx.inputs.in, null, indent || undefined) };
+  },
+};
+
 /* ====================================================================== */
 /* logic                                                                    */
 /* ====================================================================== */
@@ -235,6 +266,35 @@ const ifNode: NodeExecutor = {
 
     ctx.log.info(passed ? 'condition: yes' : 'condition: no');
     return passed ? { yes: ctx.inputs.in } : { no: ctx.inputs.in };
+  },
+};
+
+const switchNode: NodeExecutor = {
+  id: 'switch',
+  execute: (ctx) => {
+    const expression = String(ctx.config.expression ?? 'input');
+    type Selector = (input: unknown, vars: Record<string, unknown>) => unknown;
+    let value: unknown;
+    try {
+      const fn = new Function('input', 'vars', `return (${expression});`) as Selector;
+      value = fn(ctx.inputs.in, ctx.vars);
+    } catch (err) {
+      ctx.log.error(`switch: ${(err as Error).message}`);
+      return { default: ctx.inputs.in };
+    }
+    const cases = [
+      { key: 'case-1', expected: ctx.config.case1 },
+      { key: 'case-2', expected: ctx.config.case2 },
+      { key: 'case-3', expected: ctx.config.case3 },
+    ];
+    for (const c of cases) {
+      if (c.expected !== undefined && c.expected !== '' && value === c.expected) {
+        ctx.log.info(`switch → ${c.key} (matched "${String(c.expected)}")`);
+        return { [c.key]: ctx.inputs.in };
+      }
+    }
+    ctx.log.info(`switch → default (value "${String(value)}")`);
+    return { default: ctx.inputs.in };
   },
 };
 
@@ -488,6 +548,31 @@ const openaiExecutors: NodeExecutor[] = [
   makeIntegrationStub('openai-embed', 'openai · embed'),
 ];
 
+const anthropicExecutors: NodeExecutor[] = [
+  makeIntegrationStub('anthropic-message', 'anthropic · message'),
+  makeIntegrationStub('anthropic-vision', 'anthropic · vision'),
+  makeIntegrationStub('anthropic-extract', 'anthropic · extract'),
+];
+
+const linearExecutors: NodeExecutor[] = [
+  makeIntegrationStub('linear-issue-create', 'linear · create issue'),
+  makeIntegrationStub('linear-issue-comment', 'linear · comment'),
+  makeIntegrationStub('linear-issue-update', 'linear · update'),
+];
+
+const airtableExecutors: NodeExecutor[] = [
+  makeIntegrationStub('airtable-record-create', 'airtable · create record'),
+  makeIntegrationStub('airtable-record-update', 'airtable · update record'),
+  makeIntegrationStub('airtable-list-records', 'airtable · list'),
+];
+
+const stripeExecutors: NodeExecutor[] = [
+  makeIntegrationStub('stripe-customer-create', 'stripe · create customer'),
+  makeIntegrationStub('stripe-charge-create', 'stripe · payment intent'),
+  makeIntegrationStub('stripe-subscription-create', 'stripe · subscription'),
+  makeIntegrationStub('stripe-refund-create', 'stripe · refund'),
+];
+
 /* ====================================================================== */
 /* exports                                                                  */
 /* ====================================================================== */
@@ -502,7 +587,10 @@ export const BUILTIN_EXECUTORS: NodeExecutor[] = [
   log,
   jsTransform,
   template,
+  jsonParse,
+  jsonStringify,
   ifNode,
+  switchNode,
   merge,
   loopStartStub,
   loopEndStub,
@@ -517,6 +605,10 @@ export const BUILTIN_EXECUTORS: NodeExecutor[] = [
   ...notionExecutors,
   ...gmailExecutors,
   ...openaiExecutors,
+  ...anthropicExecutors,
+  ...linearExecutors,
+  ...airtableExecutors,
+  ...stripeExecutors,
 ];
 
 export const BUILTIN_EXECUTOR_REGISTRY: ExecutorRegistry = createExecutorRegistry(BUILTIN_EXECUTORS);

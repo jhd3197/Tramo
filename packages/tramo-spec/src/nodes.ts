@@ -293,6 +293,48 @@ export const BUILTIN_NODES: NodeDefinition[] = [
     ],
   },
 
+  {
+    id: 'json-parse',
+    name: 'JSON Parse',
+    category: 'transform',
+    description: 'Parse a string as JSON. Emits the parsed value on `out`, or the error on `error`.',
+    icon: 'Code',
+    color: COLORS.transform,
+    inputs: [{ key: 'in', label: 'String', type: 'string' }],
+    outputs: [
+      { key: 'out', label: 'Parsed', type: 'any' },
+      { key: 'error', label: 'Error', type: 'object' },
+    ],
+    fields: [
+      {
+        key: 'source',
+        type: 'text',
+        label: 'Source expression',
+        default: 'input',
+        help: 'JS expression resolving to the string to parse. Bindings: `input`, `vars`.',
+      },
+    ],
+  },
+  {
+    id: 'json-stringify',
+    name: 'JSON Stringify',
+    category: 'transform',
+    description: 'Serialise the input as a JSON string. Optional indentation for readability.',
+    icon: 'Code',
+    color: COLORS.transform,
+    inputs: [{ key: 'in', label: 'Value', type: 'any' }],
+    outputs: [{ key: 'out', label: 'String', type: 'string' }],
+    fields: [
+      {
+        key: 'indent',
+        type: 'number',
+        label: 'Indent spaces',
+        default: 0,
+        help: '0 = compact. 2 or 4 = pretty-printed.',
+      },
+    ],
+  },
+
   /* ---------- logic ---------- */
   {
     id: 'if',
@@ -323,6 +365,34 @@ export const BUILTIN_NODES: NodeDefinition[] = [
         optional: true,
         help: 'Used only when the rule tree above is empty. Evaluated against `input`, `vars`, `config`.',
       },
+    ],
+  },
+  {
+    id: 'switch',
+    name: 'Switch',
+    category: 'logic',
+    description: 'Route the input to one of several named branches based on a JS expression.',
+    icon: 'GitBranch',
+    color: COLORS.logic,
+    inputs: [{ key: 'in', label: 'Input', type: 'any' }],
+    outputs: [
+      { key: 'case-1', label: 'Case 1', type: 'any' },
+      { key: 'case-2', label: 'Case 2', type: 'any' },
+      { key: 'case-3', label: 'Case 3', type: 'any' },
+      { key: 'default', label: 'Default', type: 'any' },
+    ],
+    fields: [
+      {
+        key: 'expression',
+        type: 'code',
+        language: 'javascript',
+        label: 'Selector expression',
+        default: 'input.kind',
+        help: 'JS expression — its returned value is compared against each case value. Bindings: `input`, `vars`.',
+      },
+      { key: 'case1', type: 'text', label: 'Case 1 value', default: 'a' },
+      { key: 'case2', type: 'text', label: 'Case 2 value', default: 'b' },
+      { key: 'case3', type: 'text', label: 'Case 3 value', default: 'c', optional: true },
     ],
   },
   {

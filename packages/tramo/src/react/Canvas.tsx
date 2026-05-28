@@ -744,11 +744,11 @@ function renderTileSection(
               <button
                 key={t.def.id}
                 type="button"
-                className="tr-picker__tile"
+                className="tr-picker__tile tr-picker__tile--quick"
                 onClick={() => onPick(t.def)}
               >
                 <span className="tr-picker__tile-icon" aria-hidden>
-                  <NodeIcon definition={t.def} size={22} />
+                  <NodeIcon definition={t.def} size={24} />
                 </span>
                 <span className="tr-picker__tile-name">
                   {t.def.operationName ?? t.def.name}
@@ -757,16 +757,23 @@ function renderTileSection(
             );
           }
           if (t.kind === 'integration') {
+            const accent = t.integration.color;
+            const tileStyle = accent
+              ? ({
+                  '--tile-accent': accent,
+                  '--tile-bg': `${accent}14`,
+                } as CSSProperties)
+              : undefined;
             return (
               <button
                 key={t.integration.id}
                 type="button"
                 className="tr-picker__tile tr-picker__tile--integration"
                 onClick={() => setDrill({ kind: 'integration', id: t.integration.id })}
-                style={t.integration.color ? { '--tile-accent': t.integration.color } as CSSProperties : undefined}
+                style={tileStyle}
               >
                 <span className="tr-picker__tile-icon" aria-hidden>
-                  <IntegrationIcon integration={t.integration} size={22} />
+                  <IntegrationIcon integration={t.integration} size={26} />
                 </span>
                 <span className="tr-picker__tile-name">{t.integration.name}</span>
                 <span className="tr-picker__tile-meta">{t.count} action{t.count === 1 ? '' : 's'}</span>

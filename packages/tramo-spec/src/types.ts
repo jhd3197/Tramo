@@ -125,6 +125,9 @@ export type NodeFieldType =
   | 'json'
   | 'code'
   | 'rule'
+  | 'switch-cases'
+  | 'flow-params'
+  | 'flow-ref'
   | 'secret';
 
 /* ---------------------------------------------------------------------- */

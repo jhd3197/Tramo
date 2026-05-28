@@ -114,6 +114,9 @@ const BRAND: Record<string, SimpleIcon> = {
   linear: si.siLinear!,
   gmail: si.siGmail!,
   openai: si.siOpenai!,
+  anthropic: si.siAnthropic!,
+  airtable: si.siAirtable!,
+  stripe: si.siStripe!,
 };
 
 export interface NodeIconProps {

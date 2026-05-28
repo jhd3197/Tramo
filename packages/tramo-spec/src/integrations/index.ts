@@ -17,13 +17,28 @@ import * as telegram from './telegram.js';
 import * as notion from './notion.js';
 import * as gmail from './gmail.js';
 import * as openai from './openai.js';
+import * as anthropic from './anthropic.js';
+import * as linear from './linear.js';
+import * as airtable from './airtable.js';
+import * as stripe from './stripe.js';
 
 interface Pack {
   DEFINITION: IntegrationDefinition;
   NODES: NodeDefinition[];
 }
 
-const PACKS: Pack[] = [github, discord, telegram, notion, gmail, openai];
+const PACKS: Pack[] = [
+  github,
+  linear,
+  discord,
+  telegram,
+  gmail,
+  notion,
+  airtable,
+  openai,
+  anthropic,
+  stripe,
+];
 
 export const BUILTIN_INTEGRATIONS: IntegrationDefinition[] = PACKS.map((p) => p.DEFINITION);
 
