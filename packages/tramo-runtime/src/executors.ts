@@ -107,6 +107,90 @@ const httpRequest: NodeExecutor = {
   },
 };
 
+const mcpToolCall: NodeExecutor = {
+  id: 'mcp-tool-call',
+  execute: async (ctx) => {
+    const serverUrl = String(ctx.config.serverUrl ?? '').trim();
+    const toolName = String(ctx.config.toolName ?? '').trim();
+    if (!serverUrl) return { error: { message: 'mcp-tool-call: serverUrl is required' } };
+    if (!toolName) return { error: { message: 'mcp-tool-call: toolName is required' } };
+
+    const rawArgs = ctx.config.arguments;
+    let parsedArgs: unknown;
+    if (typeof rawArgs === 'string') {
+      const rendered = renderTemplate(rawArgs, ctx.inputs.in, ctx.vars);
+      const trimmed = rendered.trim();
+      if (trimmed === '') {
+        parsedArgs = {};
+      } else {
+        try {
+          parsedArgs = JSON.parse(trimmed);
+        } catch (err) {
+          return { error: { message: `mcp-tool-call: arguments JSON invalid after rendering: ${(err as Error).message}` } };
+        }
+      }
+    } else {
+      parsedArgs = rawArgs ?? {};
+    }
+
+    const timeoutMs = Number(ctx.config.timeoutMs ?? 30000);
+    const authToken = ctx.config.authToken ? String(ctx.config.authToken) : undefined;
+
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      accept: 'application/json, text/event-stream',
+    };
+    if (authToken) headers.authorization = `Bearer ${authToken}`;
+
+    const body = JSON.stringify({
+      jsonrpc: '2.0',
+      id: Date.now(),
+      method: 'tools/call',
+      params: { name: toolName, arguments: parsedArgs },
+    });
+
+    ctx.log.info(`mcp-tool-call → ${toolName} @ ${serverUrl}`);
+    try {
+      const res = await fetch(serverUrl, {
+        method: 'POST',
+        headers,
+        body,
+        signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(timeoutMs)]),
+      });
+      if (!res.ok) {
+        return { error: { message: `mcp-tool-call: HTTP ${res.status} from ${serverUrl}: ${await res.text()}` } };
+      }
+      const contentType = res.headers.get('content-type') ?? '';
+      // Streamable HTTP servers may return SSE; we read the body as text and
+      // pick the last `data: { ... }` line, which is the final JSON-RPC frame.
+      let payload: unknown;
+      if (contentType.includes('text/event-stream')) {
+        const text = await res.text();
+        const lines = text.split(/\r?\n/).filter((l) => l.startsWith('data:'));
+        const last = lines[lines.length - 1]?.slice(5).trim();
+        if (!last) return { error: { message: 'mcp-tool-call: empty SSE stream from server' } };
+        try {
+          payload = JSON.parse(last);
+        } catch (err) {
+          return { error: { message: `mcp-tool-call: failed to parse SSE frame: ${(err as Error).message}` } };
+        }
+      } else {
+        payload = await res.json();
+      }
+      const rpc = payload as { result?: { content?: unknown; isError?: boolean }; error?: { message?: string } };
+      if (rpc.error) {
+        return { error: { message: rpc.error.message ?? 'mcp-tool-call: server returned a JSON-RPC error' } };
+      }
+      if (rpc.result?.isError) {
+        return { error: { message: 'mcp-tool-call: tool reported isError=true', content: rpc.result.content } };
+      }
+      return { out: rpc.result?.content ?? rpc.result ?? payload };
+    } catch (err) {
+      return { error: { message: (err as Error).message || String(err) } };
+    }
+  },
+};
+
 const httpRespond: NodeExecutor = {
   id: 'http-respond',
   execute: (ctx) => {
@@ -695,6 +779,7 @@ export const BUILTIN_EXECUTORS: NodeExecutor[] = [
   webhookTrigger,
   cronTrigger,
   httpRequest,
+  mcpToolCall,
   httpRespond,
   delay,
   log,
