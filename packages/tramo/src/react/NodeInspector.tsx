@@ -29,6 +29,18 @@ import type { SaveState } from './useWorkflow.js';
 import { getVarSuggestions, type VarSuggestion } from './varSuggestions.js';
 import { VarPicker } from './VarPicker.js';
 import { RuleField } from './RuleField.js';
+import { SwitchCasesField } from './SwitchCasesField.js';
+import { FlowParamsField } from './FlowParamsField.js';
+
+/**
+ * One callable sub-flow exposed in the inspector's `flow-ref` picker.
+ * Hosts register these by passing `flowRefs` to NodeInspector / RightRail.
+ */
+export interface FlowRef {
+  id: string;
+  name: string;
+  description?: string;
+}
 
 export interface NodeInspectorProps {
   selection: WorkflowNode | null;
@@ -43,6 +55,12 @@ export interface NodeInspectorProps {
   doc?: WorkflowDoc | null;
   /** Most recent run's per-node outputs, keyed by node id. */
   runResults?: Record<string, unknown>;
+  /**
+   * Callable sub-flows the host has registered. Populates the `flow-ref`
+   * dropdown on the `call-flow` node. When omitted, the field renders as
+   * a free-text input so users can still type an id by hand.
+   */
+  flowRefs?: FlowRef[];
 }
 
 export function NodeInspector({
@@ -53,6 +71,7 @@ export function NodeInspector({
   saveState,
   doc,
   runResults,
+  flowRefs,
 }: NodeInspectorProps) {
   if (!selection) {
     return (
@@ -84,6 +103,7 @@ export function NodeInspector({
       onClose={onClose}
       saveState={saveState}
       varSuggestions={suggestions}
+      flowRefs={flowRefs}
     />
   );
 }
@@ -95,6 +115,7 @@ function NodeInspectorBody({
   onClose,
   saveState,
   varSuggestions,
+  flowRefs,
 }: {
   node: WorkflowNode;
   def: NodeDefinition;
@@ -102,6 +123,7 @@ function NodeInspectorBody({
   onClose?: () => void;
   saveState?: SaveState;
   varSuggestions: VarSuggestion[];
+  flowRefs?: FlowRef[];
 }) {
   /**
    * Local draft so users can type freely without each keystroke firing
@@ -194,6 +216,7 @@ function NodeInspectorBody({
             onLocalChange={(v) => setLocal(f.key, v)}
             onCommit={(v) => commit(f.key, v)}
             varSuggestions={varSuggestions}
+            flowRefs={flowRefs}
           />
         ))}
       </div>
@@ -209,12 +232,14 @@ function FieldRow({
   onLocalChange,
   onCommit,
   varSuggestions,
+  flowRefs,
 }: {
   field: NodeField;
   value: unknown;
   onLocalChange: (v: unknown) => void;
   onCommit: (v: unknown) => void;
   varSuggestions: VarSuggestion[];
+  flowRefs?: FlowRef[];
 }) {
   const id = `tr-f-${field.key}`;
   const label = (
@@ -272,6 +297,71 @@ function FieldRow({
           {help}
         </div>
       );
+
+    case 'switch-cases':
+      return (
+        <div className="tr-field">
+          {label}
+          <SwitchCasesField value={value} onCommit={(v) => onCommit(v)} />
+          {help}
+        </div>
+      );
+
+    case 'flow-params':
+      return (
+        <div className="tr-field">
+          {label}
+          <FlowParamsField value={value} onCommit={(v) => onCommit(v)} />
+          {help}
+        </div>
+      );
+
+    case 'flow-ref': {
+      const refs = flowRefs ?? [];
+      if (refs.length === 0) {
+        return (
+          <div className="tr-field">
+            {label}
+            <input
+              id={id}
+              type="text"
+              className="tr-input"
+              value={String(value ?? '')}
+              placeholder="flow-id"
+              onChange={(e) => onLocalChange(e.target.value)}
+              onBlur={(e) => onCommit(e.target.value)}
+            />
+            {help ?? (
+              <div className="tr-field__help">
+                No sub-flows registered. Type a flow id manually, or pass <code>flowRefs</code> to NodeInspector.
+              </div>
+            )}
+          </div>
+        );
+      }
+      return (
+        <div className="tr-field">
+          {label}
+          <select
+            id={id}
+            className="tr-input"
+            value={String(value ?? '')}
+            onChange={(e) => {
+              onLocalChange(e.target.value);
+              onCommit(e.target.value);
+            }}
+          >
+            <option value="">— pick a workflow —</option>
+            {refs.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name} ({r.id})
+              </option>
+            ))}
+          </select>
+          {help}
+        </div>
+      );
+    }
 
     case 'json': {
       return (

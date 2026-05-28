@@ -27,6 +27,7 @@ export function RightRail({
   saveState,
   doc,
   runResults,
+  flowRefs,
   tabs = [],
 }: RightRailProps) {
   const allTabs: RightRailTab[] = [
@@ -42,6 +43,7 @@ export function RightRail({
           saveState={saveState}
           doc={doc}
           runResults={runResults}
+          flowRefs={flowRefs}
         />
       ),
     },

@@ -205,6 +205,13 @@ export async function run(
       node,
       runId,
       vars,
+      workflows: options.workflows,
+      invokeFlow: (subDoc, subInput) =>
+        run(subDoc, registry, {
+          trigger: subInput,
+          signal,
+          workflows: options.workflows,
+        }),
       log: makeLogger((level, message, data) => {
         emit({ type: 'node-log', runId, nodeId, level, message, data });
       }),

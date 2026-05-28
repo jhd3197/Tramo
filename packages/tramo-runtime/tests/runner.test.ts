@@ -466,4 +466,175 @@ describe('run()', () => {
     expect(first.nodeResults.tpl).toEqual({ out: '1' });
     expect(second.nodeResults.tpl).toEqual({ out: '1' });
   });
+
+  /* -------------------------------------------------------------------- */
+  /* switch                                                                */
+  /* -------------------------------------------------------------------- */
+
+  it('switch: routes to the first matching case', async () => {
+    const doc = applyPatches(emptyDoc(), [
+      { kind: 'add-node', node: node('t', 'manual-trigger', { payload: '{"kind":"b"}' }) },
+      {
+        kind: 'add-node',
+        node: node('sw', 'switch', {
+          cases: [
+            {
+              key: 'case_a',
+              label: 'A',
+              rules: { kind: 'group', combinator: 'and', rules: [
+                { kind: 'condition', left: 'input.kind', op: '=', right: 'a' },
+              ] },
+            },
+            {
+              key: 'case_b',
+              label: 'B',
+              rules: { kind: 'group', combinator: 'and', rules: [
+                { kind: 'condition', left: 'input.kind', op: '=', right: 'b' },
+              ] },
+            },
+          ],
+        }),
+      },
+      { kind: 'add-node', node: node('a', 'log', { prefix: 'A' }) },
+      { kind: 'add-node', node: node('b', 'log', { prefix: 'B' }) },
+      { kind: 'add-node', node: node('d', 'log', { prefix: 'D' }) },
+      { kind: 'add-edge', edge: { id: 'e1', source: 't', target: 'sw' } },
+      { kind: 'add-edge', edge: { id: 'e2', source: 'sw', target: 'a', sourceHandle: 'case_a' } },
+      { kind: 'add-edge', edge: { id: 'e3', source: 'sw', target: 'b', sourceHandle: 'case_b' } },
+      { kind: 'add-edge', edge: { id: 'e4', source: 'sw', target: 'd', sourceHandle: 'default' } },
+    ]).doc;
+
+    const result = await run(doc, BUILTIN_EXECUTOR_REGISTRY);
+    expect(result.ok).toBe(true);
+    expect(result.nodeResults.b).toBeDefined();
+    expect(result.nodeResults.a).toBeUndefined();
+    expect(result.nodeResults.d).toBeUndefined();
+  });
+
+  it('switch: falls through to the default port when no case matches', async () => {
+    const doc = applyPatches(emptyDoc(), [
+      { kind: 'add-node', node: node('t', 'manual-trigger', { payload: '{"kind":"unknown"}' }) },
+      {
+        kind: 'add-node',
+        node: node('sw', 'switch', {
+          cases: [
+            {
+              key: 'case_a',
+              label: 'A',
+              rules: { kind: 'group', combinator: 'and', rules: [
+                { kind: 'condition', left: 'input.kind', op: '=', right: 'a' },
+              ] },
+            },
+          ],
+        }),
+      },
+      { kind: 'add-node', node: node('a', 'log', { prefix: 'A' }) },
+      { kind: 'add-node', node: node('d', 'log', { prefix: 'D' }) },
+      { kind: 'add-edge', edge: { id: 'e1', source: 't', target: 'sw' } },
+      { kind: 'add-edge', edge: { id: 'e2', source: 'sw', target: 'a', sourceHandle: 'case_a' } },
+      { kind: 'add-edge', edge: { id: 'e3', source: 'sw', target: 'd', sourceHandle: 'default' } },
+    ]).doc;
+
+    const result = await run(doc, BUILTIN_EXECUTOR_REGISTRY);
+    expect(result.ok).toBe(true);
+    expect(result.nodeResults.d).toBeDefined();
+    expect(result.nodeResults.a).toBeUndefined();
+  });
+
+  it('switch: stops at the first match — later matching cases are not taken', async () => {
+    const doc = applyPatches(emptyDoc(), [
+      { kind: 'add-node', node: node('t', 'manual-trigger', { payload: '{"v":1}' }) },
+      {
+        kind: 'add-node',
+        node: node('sw', 'switch', {
+          cases: [
+            {
+              key: 'truthy',
+              label: 'truthy',
+              rules: { kind: 'group', combinator: 'and', rules: [
+                { kind: 'condition', left: 'input.v', op: 'is-truthy' },
+              ] },
+            },
+            {
+              key: 'equals_one',
+              label: 'one',
+              rules: { kind: 'group', combinator: 'and', rules: [
+                { kind: 'condition', left: 'input.v', op: '=', right: 1 },
+              ] },
+            },
+          ],
+        }),
+      },
+      { kind: 'add-node', node: node('first', 'log', {}) },
+      { kind: 'add-node', node: node('second', 'log', {}) },
+      { kind: 'add-edge', edge: { id: 'e1', source: 't', target: 'sw' } },
+      { kind: 'add-edge', edge: { id: 'e2', source: 'sw', target: 'first', sourceHandle: 'truthy' } },
+      { kind: 'add-edge', edge: { id: 'e3', source: 'sw', target: 'second', sourceHandle: 'equals_one' } },
+    ]).doc;
+
+    const result = await run(doc, BUILTIN_EXECUTOR_REGISTRY);
+    expect(result.nodeResults.first).toBeDefined();
+    expect(result.nodeResults.second).toBeUndefined();
+  });
+
+  /* -------------------------------------------------------------------- */
+  /* sub-flows                                                             */
+  /* -------------------------------------------------------------------- */
+
+  it('call-flow: invokes a sub-flow and surfaces its flow-output value', async () => {
+    const subDoc = applyPatches(emptyDoc(), [
+      { kind: 'add-node', node: node('in', 'flow-input', { samplePayload: '{}' }) },
+      { kind: 'add-node', node: node('xf', 'js-transform', {
+        expression: 'return { doubled: input.value * 2 };',
+      }) },
+      { kind: 'add-node', node: node('out', 'flow-output', {}) },
+      { kind: 'add-edge', edge: { id: 'e1', source: 'in', target: 'xf' } },
+      { kind: 'add-edge', edge: { id: 'e2', source: 'xf', target: 'out' } },
+    ]).doc;
+
+    const parentDoc = applyPatches(emptyDoc(), [
+      { kind: 'add-node', node: node('t', 'manual-trigger', { payload: '{}' }) },
+      { kind: 'add-node', node: node('call', 'call-flow', {
+        flowId: 'doubler',
+        inputs: '{"value": 5}',
+      }) },
+      { kind: 'add-edge', edge: { id: 'e1', source: 't', target: 'call' } },
+    ]).doc;
+
+    const result = await run(parentDoc, BUILTIN_EXECUTOR_REGISTRY, {
+      workflows: { doubler: subDoc },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.nodeResults.call).toEqual({ out: { doubled: 10 } });
+  });
+
+  it('call-flow: errors clearly when the target flow is not registered', async () => {
+    const parentDoc = applyPatches(emptyDoc(), [
+      { kind: 'add-node', node: node('t', 'manual-trigger', { payload: '{}' }) },
+      { kind: 'add-node', node: node('call', 'call-flow', {
+        flowId: 'missing',
+        inputs: '{}',
+      }) },
+      { kind: 'add-edge', edge: { id: 'e1', source: 't', target: 'call' } },
+    ]).doc;
+
+    const result = await run(parentDoc, BUILTIN_EXECUTOR_REGISTRY, { workflows: {} });
+    expect(result.ok).toBe(true);
+    const r = result.nodeResults.call as Record<string, unknown> | undefined;
+    expect(r?.error).toBeDefined();
+    expect(String((r?.error as { message: string }).message)).toContain('missing');
+  });
+
+  it('flow-input: falls back to sample payload when running standalone', async () => {
+    const doc = applyPatches(emptyDoc(), [
+      { kind: 'add-node', node: node('in', 'flow-input', { samplePayload: '{"a":1}' }) },
+      { kind: 'add-node', node: node('xf', 'js-transform', {
+        expression: 'return input.a + 1;',
+      }) },
+      { kind: 'add-edge', edge: { id: 'e1', source: 'in', target: 'xf' } },
+    ]).doc;
+
+    const result = await run(doc, BUILTIN_EXECUTOR_REGISTRY);
+    expect(result.nodeResults.xf).toEqual({ out: 2 });
+  });
 });

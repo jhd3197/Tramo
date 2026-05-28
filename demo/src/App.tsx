@@ -7,9 +7,21 @@ import {
   type Patch,
   type WorkflowDoc,
 } from 'tramo-spec';
-import { AgentChat, Canvas, RightRail, useWorkflow, type NodeRunStatus } from 'tramo/react';
+import { AgentChat, Canvas, RightRail, useWorkflow, type FlowRef, type NodeRunStatus } from 'tramo/react';
 import { BUILTIN_PACK, combinePacks, run, type RunEvent } from 'tramo-runtime';
-import { SAMPLE_DOC } from './sample.js';
+import { SAMPLE_DOC, SUBFLOW_DOUBLER, SUBFLOW_GREETER } from './sample.js';
+
+/* Demo-only sub-flow catalog. A real host might persist these to a
+ * folder of WorkflowDoc JSON files and watch the directory. The demo
+ * just hardcodes two so the call-flow node has something to point at. */
+const DEMO_SUBFLOWS: Record<string, WorkflowDoc> = {
+  doubler: SUBFLOW_DOUBLER,
+  greeter: SUBFLOW_GREETER,
+};
+const DEMO_FLOW_REFS: FlowRef[] = [
+  { id: 'doubler', name: 'Doubler', description: 'Returns { doubled: value * 2 }.' },
+  { id: 'greeter', name: 'Greeter', description: 'Returns "Hello, {name}!".' },
+];
 
 const STORAGE_KEY = 'tramo:demo:doc';
 
@@ -49,6 +61,7 @@ export function App() {
     try {
       const result = await run(workflow.doc, executors, {
         onEvent: (e) => setEvents((prev) => [...prev, e]),
+        workflows: DEMO_SUBFLOWS,
       });
       // Strip `{ out: value }` wrappers down to the bare value where present,
       // matching how downstream nodes receive the data.
@@ -165,6 +178,7 @@ export function App() {
           saveState={workflow.saveState}
           doc={workflow.doc}
           runResults={runResults}
+          flowRefs={DEMO_FLOW_REFS}
           tabs={[
             {
               id: 'agent',

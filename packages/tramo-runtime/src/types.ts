@@ -32,6 +32,19 @@ export interface ExecutionContext {
    * via the `vars.NAME` path.
    */
   vars: Record<string, unknown>;
+  /**
+   * Catalog of callable workflows passed to the runner. The `call-flow`
+   * executor looks up by id here. Undefined when the host didn't register
+   * any sub-flows — `call-flow` then errors with a clear message.
+   */
+  workflows?: Record<string, WorkflowDoc>;
+  /**
+   * Recursive invocation hook supplied by the runner. `call-flow` uses
+   * this to run a sub-flow with the assembled inputs. Pulled out into a
+   * callback so executors don't need to import `run()` directly (which
+   * would be a circular import).
+   */
+  invokeFlow?: (doc: WorkflowDoc, input: unknown) => Promise<RunResult>;
 }
 
 export interface NodeLogger {
@@ -78,6 +91,12 @@ export interface RunOptions {
   onEvent?: (event: RunEvent) => void;
   /** Overall logger (parallel to onEvent). */
   logger?: Pick<Console, 'debug' | 'info' | 'warn' | 'error'>;
+  /**
+   * Catalog of sub-flows the `call-flow` node can invoke, keyed by id.
+   * Hosts that want sub-flow support pass every callable workflow in
+   * here; the runner threads them through to ExecutionContext.
+   */
+  workflows?: Record<string, WorkflowDoc>;
 }
 
 export interface RunResult {

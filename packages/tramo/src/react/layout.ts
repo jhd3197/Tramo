@@ -15,7 +15,7 @@
  * order to avoid an infinite loop (caller can detect via topoSort).
  */
 
-import type { NodeDefinition, NodeRegistry, WorkflowDoc } from 'tramo-spec';
+import { resolveOutputs, type NodeDefinition, type NodePort, type NodeRegistry, type WorkflowDoc, type WorkflowNode } from 'tramo-spec';
 
 export interface LayoutOptions {
   /** Width allotted per node slot, used for horizontal centering. */
@@ -71,11 +71,13 @@ export interface LayoutResult {
 const PORT_SPREAD = 0.7;
 
 export function outputOffset(
-  def: NodeDefinition | undefined,
+  defOrOutputs: NodeDefinition | NodePort[] | undefined,
   sourceHandle: string | undefined,
   nodeWidth: number,
 ): number {
-  const outs = def?.outputs ?? [];
+  const outs: NodePort[] = Array.isArray(defOrOutputs)
+    ? defOrOutputs
+    : (defOrOutputs?.outputs ?? []);
   if (outs.length <= 1) return 0;
   // Default to the first output when no handle is named on the edge.
   const handle = sourceHandle ?? outs[0]!.key;
@@ -85,6 +87,20 @@ export function outputOffset(
   const spread = nodeWidth * PORT_SPREAD;
   const step = spread / (n - 1);
   return -spread / 2 + idx * step;
+}
+
+/**
+ * Resolved outputs for a node — convenience wrapper around the spec's
+ * `resolveOutputs` so editor code can drop in a `(def, node)` lookup
+ * anywhere it used to read `def.outputs`. The runtime doesn't need this:
+ * executors emit port keys directly.
+ */
+export function nodeOutputs(
+  def: NodeDefinition | undefined,
+  node: WorkflowNode | undefined,
+): NodePort[] {
+  if (!def) return [];
+  return resolveOutputs(def, node);
 }
 
 interface ResolvedOptions {
@@ -315,7 +331,8 @@ export function layoutWorkflow(
           const n = doc.nodes.find((node) => node.id === id);
           if (!n) return false;
           const def = opts.registry?.get(n.type);
-          return (def?.outputs?.length ?? 0) > 1;
+          if (!def) return false;
+          return resolveOutputs(def, n).length > 1;
         })
       : false;
     cursorY += opts.rowHeight + (hasMultiOut ? opts.multiOutputExtraGap : 0);

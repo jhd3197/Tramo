@@ -7,7 +7,7 @@
  * Node-only deps.
  */
 
-import { evaluateRuleGroup, isRuleGroup } from 'tramo-spec';
+import { evaluateRuleGroup, isRuleGroup, type SwitchCase } from 'tramo-spec';
 import type {
   ExecutionContext,
   ExecutorRegistry,
@@ -272,28 +272,24 @@ const ifNode: NodeExecutor = {
 const switchNode: NodeExecutor = {
   id: 'switch',
   execute: (ctx) => {
-    const expression = String(ctx.config.expression ?? 'input');
-    type Selector = (input: unknown, vars: Record<string, unknown>) => unknown;
-    let value: unknown;
-    try {
-      const fn = new Function('input', 'vars', `return (${expression});`) as Selector;
-      value = fn(ctx.inputs.in, ctx.vars);
-    } catch (err) {
-      ctx.log.error(`switch: ${(err as Error).message}`);
-      return { default: ctx.inputs.in };
-    }
-    const cases = [
-      { key: 'case-1', expected: ctx.config.case1 },
-      { key: 'case-2', expected: ctx.config.case2 },
-      { key: 'case-3', expected: ctx.config.case3 },
-    ];
+    const env = { input: ctx.inputs.in, vars: ctx.vars, config: ctx.config };
+    const raw = ctx.config.cases;
+    const cases: SwitchCase[] = Array.isArray(raw) ? (raw as SwitchCase[]) : [];
     for (const c of cases) {
-      if (c.expected !== undefined && c.expected !== '' && value === c.expected) {
-        ctx.log.info(`switch → ${c.key} (matched "${String(c.expected)}")`);
-        return { [c.key]: ctx.inputs.in };
+      const key = String(c?.key ?? '').trim();
+      if (!key || key === 'default') continue;
+      if (isRuleGroup(c.rules) && c.rules.rules.length > 0) {
+        if (evaluateRuleGroup(c.rules, env)) {
+          ctx.log.info(`switch → ${key}`);
+          return { [key]: ctx.inputs.in };
+        }
+      } else {
+        // Empty rules in a case match anything — same convention as If.
+        ctx.log.info(`switch → ${key} (empty rules)`);
+        return { [key]: ctx.inputs.in };
       }
     }
-    ctx.log.info(`switch → default (value "${String(value)}")`);
+    ctx.log.info('switch → default');
     return { default: ctx.inputs.in };
   },
 };
@@ -462,6 +458,94 @@ const appendVar: NodeExecutor = {
 };
 
 /* ====================================================================== */
+/* sub-flows                                                                */
+/* ====================================================================== */
+
+/* flow-input behaves like manual-trigger except it favours the caller-
+ * supplied trigger and falls back to the editor's "sample payload" when
+ * the workflow is run standalone (so users can iterate without setting up
+ * a parent flow). */
+const flowInput: NodeExecutor = {
+  id: 'flow-input',
+  execute: (ctx) => {
+    const fromCaller = ctx.inputs.in;
+    if (fromCaller !== undefined) {
+      ctx.log.info('flow-input received params from caller', fromCaller);
+      return { out: fromCaller };
+    }
+    const sample = parseMaybeJson(ctx.config.samplePayload) ?? {};
+    ctx.log.info('flow-input using sample payload (no caller)', sample);
+    return { out: sample };
+  },
+};
+
+/* flow-output is a sink — it just captures what arrived. The call-flow
+ * executor reads its result from `nodeResults` after the sub-flow run. */
+const flowOutput: NodeExecutor = {
+  id: 'flow-output',
+  execute: (ctx) => {
+    ctx.log.info('flow-output', ctx.inputs.in);
+    return { in: ctx.inputs.in, out: ctx.inputs.in };
+  },
+};
+
+const callFlow: NodeExecutor = {
+  id: 'call-flow',
+  execute: async (ctx) => {
+    const flowId = String(ctx.config.flowId ?? '').trim();
+    if (!flowId) return { error: { message: 'call-flow: no workflow selected' } };
+    const sub = ctx.workflows?.[flowId];
+    if (!sub) return { error: { message: `call-flow: no workflow registered with id "${flowId}"` } };
+    if (!ctx.invokeFlow) return { error: { message: 'call-flow: runtime did not supply an invokeFlow hook' } };
+
+    // Render the inputs JSON (with template vars), then JSON-parse.
+    const rawInputs = ctx.config.inputs;
+    let parsedInputs: unknown;
+    if (typeof rawInputs === 'string') {
+      const rendered = renderTemplate(rawInputs, ctx.inputs.in, ctx.vars);
+      const trimmed = rendered.trim();
+      if (trimmed === '') {
+        parsedInputs = {};
+      } else {
+        try {
+          parsedInputs = JSON.parse(trimmed);
+        } catch (err) {
+          return { error: { message: `call-flow: inputs JSON invalid after rendering: ${(err as Error).message}` } };
+        }
+      }
+    } else {
+      parsedInputs = rawInputs ?? {};
+    }
+
+    ctx.log.info(`call-flow → ${flowId}`, parsedInputs);
+    const result = await ctx.invokeFlow(sub, parsedInputs);
+    if (!result.ok) {
+      return { error: { message: `sub-flow "${flowId}" failed: ${result.error ?? 'unknown error'}` } };
+    }
+
+    // The sub-flow's "return value" is whatever flow-output captured. If
+    // the sub-flow has no flow-output node, fall back to the last node's
+    // result so things still work for simple cases.
+    const outputNode = sub.nodes.find((n) => n.type === 'flow-output');
+    let returnValue: unknown;
+    if (outputNode) {
+      const r = result.nodeResults[outputNode.id];
+      returnValue = r && typeof r === 'object' && 'out' in r
+        ? (r as Record<string, unknown>).out
+        : r;
+    } else {
+      const ids = Object.keys(result.nodeResults);
+      const lastId = ids[ids.length - 1];
+      const r = lastId ? result.nodeResults[lastId] : undefined;
+      returnValue = r && typeof r === 'object' && 'out' in r
+        ? (r as Record<string, unknown>).out
+        : r;
+    }
+    return { out: returnValue };
+  },
+};
+
+/* ====================================================================== */
 /* ai                                                                       */
 /* ====================================================================== */
 
@@ -598,6 +682,9 @@ export const BUILTIN_EXECUTORS: NodeExecutor[] = [
   setVar,
   incrementVar,
   appendVar,
+  flowInput,
+  flowOutput,
+  callFlow,
   aiPrompt,
   ...githubExecutors,
   ...discordExecutors,

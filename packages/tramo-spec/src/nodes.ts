@@ -10,7 +10,15 @@
  * the definition is the schema; consumers wire behavior.
  */
 
-import type { IntegrationDefinition, NodeDefinition } from './types.js';
+import type {
+  FlowParam,
+  IntegrationDefinition,
+  NodeDefinition,
+  NodePort,
+  SwitchCase,
+  WorkflowNode,
+} from './types.js';
+import { emptyRuleGroup } from './rules.js';
 import {
   BUILTIN_INTEGRATIONS,
   BUILTIN_INTEGRATION_NODES,
@@ -82,8 +90,8 @@ export const BUILTIN_NODES: NodeDefinition[] = [
       {
         key: 'payload',
         type: 'json',
-        label: 'Initial payload',
-        help: 'Optional JSON object emitted on the output port.',
+        label: 'Test payload',
+        help: 'JSON emitted when you press Run with no external trigger — handy for iterating on the flow with a fixed input until you wire up the real trigger.',
         default: '{}',
       },
     ],
@@ -371,28 +379,23 @@ export const BUILTIN_NODES: NodeDefinition[] = [
     id: 'switch',
     name: 'Switch',
     category: 'logic',
-    description: 'Route the input to one of several named branches based on a JS expression.',
-    icon: 'GitBranch',
+    description: 'Route the input to the first case whose rules match, or to Default when none match.',
+    icon: 'Split',
     color: COLORS.logic,
     inputs: [{ key: 'in', label: 'Input', type: 'any' }],
+    /* Static outputs are a fallback the renderer uses before any case is
+     * added. Real outputs are resolved per-node from `config.cases` via
+     * `resolveOutputs()`. */
     outputs: [
-      { key: 'case-1', label: 'Case 1', type: 'any' },
-      { key: 'case-2', label: 'Case 2', type: 'any' },
-      { key: 'case-3', label: 'Case 3', type: 'any' },
       { key: 'default', label: 'Default', type: 'any' },
     ],
     fields: [
       {
-        key: 'expression',
-        type: 'code',
-        language: 'javascript',
-        label: 'Selector expression',
-        default: 'input.kind',
-        help: 'JS expression — its returned value is compared against each case value. Bindings: `input`, `vars`.',
+        key: 'cases',
+        type: 'switch-cases',
+        label: 'Cases',
+        help: 'Evaluated top-to-bottom — first match wins. Unmatched inputs leave via the Default port.',
       },
-      { key: 'case1', type: 'text', label: 'Case 1 value', default: 'a' },
-      { key: 'case2', type: 'text', label: 'Case 2 value', default: 'b' },
-      { key: 'case3', type: 'text', label: 'Case 3 value', default: 'c', optional: true },
     ],
   },
   {
@@ -625,6 +628,88 @@ export const BUILTIN_NODES: NodeDefinition[] = [
     ],
   },
 
+  /* ---------- sub-flow (callable workflows) ----------
+   *
+   * `flow-input` is a trigger that declares the sub-flow's parameter
+   * signature; `flow-output` is a leaf that captures the return shape;
+   * `call-flow` runs another workflow from inside this one. The runner
+   * wires recursion via ExecutionContext.invokeFlow.
+   */
+  {
+    id: 'flow-input',
+    name: 'Flow Input',
+    category: 'trigger',
+    description: 'Entry point for a callable sub-flow. Emits the parameters passed by the caller.',
+    icon: 'LogIn',
+    color: COLORS.trigger,
+    inputs: [],
+    outputs: [{ key: 'out', label: 'Params', type: 'object' }],
+    fields: [
+      {
+        key: 'params',
+        type: 'flow-params',
+        label: 'Parameters',
+        help: 'Declared inputs the caller must provide. Read as {{name}} or input.name downstream.',
+      },
+      {
+        key: 'samplePayload',
+        type: 'json',
+        label: 'Sample payload (for testing)',
+        default: '{}',
+        optional: true,
+        help: 'Used when running this flow directly (no caller). Ignored when invoked via call-flow.',
+      },
+    ],
+  },
+  {
+    id: 'flow-output',
+    name: 'Flow Output',
+    category: 'action',
+    description: 'Sub-flow exit point. Whatever arrives here becomes the return value seen by the caller.',
+    icon: 'LogOut',
+    color: COLORS.action,
+    inputs: [{ key: 'in', label: 'Value', type: 'any' }],
+    outputs: [],
+    fields: [
+      {
+        key: 'params',
+        type: 'flow-params',
+        label: 'Returns',
+        help: 'Declared return shape — used by call-flow to render readable output keys.',
+        optional: true,
+      },
+    ],
+  },
+  {
+    id: 'call-flow',
+    name: 'Call Flow',
+    category: 'action',
+    description: 'Run another workflow as a sub-flow and forward its return value downstream.',
+    icon: 'PhoneOutgoing',
+    color: COLORS.action,
+    inputs: [{ key: 'in', label: 'In', type: 'any' }],
+    outputs: [
+      { key: 'out', label: 'Result', type: 'any' },
+      { key: 'error', label: 'Error', type: 'object' },
+    ],
+    fields: [
+      {
+        key: 'flowId',
+        type: 'flow-ref',
+        label: 'Workflow',
+        help: 'Pick a sub-flow registered with the runtime.',
+      },
+      {
+        key: 'inputs',
+        type: 'json',
+        label: 'Inputs (JSON, supports {{var}})',
+        default: '{}',
+        help: 'Object passed as the sub-flow’s parameters. {{var}} interpolation works.',
+        optional: true,
+      },
+    ],
+  },
+
   /* ---------- integrations (multi-op packs) ----------
    *
    * The actual operation nodes live in ./integrations/*.ts. This file
@@ -634,6 +719,72 @@ export const BUILTIN_NODES: NodeDefinition[] = [
    */
   ...BUILTIN_INTEGRATION_NODES,
 ];
+
+/* ====================================================================== */
+/* Output resolution                                                        */
+/* ====================================================================== */
+
+/**
+ * Return the ports a node actually exposes, after taking into account
+ * config-driven ports.
+ *
+ * For most nodes this just returns `def.outputs`. Switch is the one
+ * exception: it adds one port per case declared in `node.config.cases`,
+ * with `default` always present at the end. Callers in the editor pass
+ * the result of this to layout / edge routing so dynamic ports render
+ * correctly; the runtime doesn't need it because executors return port
+ * keys directly.
+ */
+export function resolveOutputs(
+  def: NodeDefinition,
+  node?: WorkflowNode,
+): NodePort[] {
+  if (def.id === 'switch') {
+    const raw = node?.config?.cases;
+    const cases: SwitchCase[] = Array.isArray(raw) ? (raw as SwitchCase[]) : [];
+    const seen = new Set<string>();
+    const out: NodePort[] = [];
+    for (const c of cases) {
+      const key = String(c?.key ?? '').trim();
+      if (!key || seen.has(key) || key === 'default') continue;
+      seen.add(key);
+      out.push({ key, label: c.label || key, type: 'any' });
+    }
+    out.push({ key: 'default', label: 'Default', type: 'any' });
+    return out;
+  }
+  return def.outputs;
+}
+
+/* ====================================================================== */
+/* Factories                                                                */
+/* ====================================================================== */
+
+/** Generate a stable, slug-safe key for a fresh switch case. */
+export function newSwitchCaseKey(existing: SwitchCase[] = []): string {
+  const used = new Set(existing.map((c) => c.key));
+  let i = existing.length + 1;
+  while (used.has(`case_${i}`)) i++;
+  return `case_${i}`;
+}
+
+/** Build an empty switch case row. */
+export function emptySwitchCase(existing: SwitchCase[] = []): SwitchCase {
+  const key = newSwitchCaseKey(existing);
+  return {
+    key,
+    label: `Case ${(existing.length + 1).toString()}`,
+    rules: emptyRuleGroup(),
+  };
+}
+
+/** Build an empty flow parameter row. */
+export function emptyFlowParam(existing: FlowParam[] = []): FlowParam {
+  const used = new Set(existing.map((p) => p.name));
+  let i = existing.length + 1;
+  while (used.has(`param${i}`)) i++;
+  return { name: `param${i}`, type: 'any' };
+}
 
 /** Default registry — equivalent to htmlstudio's BUILTIN_REGISTRY. */
 export const BUILTIN_REGISTRY: NodeRegistry = createRegistry(

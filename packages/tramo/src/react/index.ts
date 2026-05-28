@@ -18,7 +18,9 @@ export {
   type LayoutResult,
   type NodeLayout,
 } from './layout.js';
-export { NodeInspector, type NodeInspectorProps } from './NodeInspector.js';
+export { NodeInspector, type NodeInspectorProps, type FlowRef } from './NodeInspector.js';
+export { SwitchCasesField, type SwitchCasesFieldProps } from './SwitchCasesField.js';
+export { FlowParamsField, type FlowParamsFieldProps } from './FlowParamsField.js';
 export { RightRail, type RightRailProps, type RightRailTab } from './RightRail.js';
 export { AgentChat, type AgentChatProps } from './AgentChat.js';
 export {

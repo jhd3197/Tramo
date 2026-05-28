@@ -238,6 +238,45 @@ export interface NodeDefinition {
  * The shape is intentionally JSON-friendly so an LLM can be handed a third-
  * party API doc + this schema and emit a new pack file in one shot.
  */
+/* ---------------------------------------------------------------------- */
+/* Switch cases — value for `switch-cases` fields                          */
+/* ---------------------------------------------------------------------- */
+
+/**
+ * One labelled branch on a Switch node. `key` is the stable port id used
+ * by edges (and must stay stable across renames); `label` is the human-
+ * readable name shown on the canvas and in the inspector. `rules` is
+ * evaluated by the same engine as the If node — the first matching case
+ * wins, and an unmatched input falls through to the implicit `default`
+ * port.
+ */
+export interface SwitchCase {
+  key: string;
+  label: string;
+  rules: RuleGroup;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Flow params — value for `flow-params` fields (sub-flow I/O contracts)   */
+/* ---------------------------------------------------------------------- */
+
+export type FlowParamType = 'string' | 'number' | 'boolean' | 'object' | 'array' | 'any';
+
+/**
+ * One named input or output on a sub-flow's signature. `flow-input` nodes
+ * declare params and emit `{ [name]: value }` on their `out` port;
+ * `flow-output` nodes declare the return shape and capture `{ [name]:
+ * value }` on their `in` port. `call-flow` reads both sides to build its
+ * inspector form.
+ */
+export interface FlowParam {
+  name: string;
+  type: FlowParamType;
+  description?: string;
+  /** Default value as a JSON-encoded string. Empty / missing = no default. */
+  default?: string;
+}
+
 export interface IntegrationDefinition {
   /** Stable slug used as NodeDefinition.integrationId, e.g. 'github'. */
   id: string;

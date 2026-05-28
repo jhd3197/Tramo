@@ -25,13 +25,17 @@ import {
   Hourglass,
   Info,
   ListPlus,
+  LogIn,
+  LogOut,
   Merge,
+  PhoneOutgoing,
   Play,
   PlayCircle,
   Plus,
   Repeat,
   Reply,
   Sparkles,
+  Split,
   StickyNote,
   Type,
   Variable,
@@ -79,6 +83,10 @@ const LUCIDE: Record<string, LucideIcon> = {
   Repeat,
   Hourglass,
   Reply,
+  Split,
+  LogIn,
+  LogOut,
+  PhoneOutgoing,
 };
 
 /* ---------- category metadata — pill label, icon, soft colors ---------- */

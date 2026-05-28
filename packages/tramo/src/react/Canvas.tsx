@@ -33,7 +33,7 @@ import { CATEGORY_META, IntegrationIcon, NodeIcon } from './icons.js';
 import { ArrowLeft, Search } from 'lucide-react';
 import { PlusButton } from './PlusButton.js';
 import { layoutWorkflow, outputOffset, type NodeLayout } from './layout.js';
-import { newNodeId, newEdgeId, type IntegrationDefinition, type NodeCategory, type NodeDefinition } from 'tramo-spec';
+import { newNodeId, newEdgeId, resolveOutputs, type IntegrationDefinition, type NodeCategory, type NodeDefinition } from 'tramo-spec';
 import type { WorkflowHandle } from './useWorkflow.js';
 
 export interface CanvasProps {
@@ -303,8 +303,10 @@ export function Canvas({
      */
     const connectedOuts = new Map<string, Set<string>>();
     for (const e of doc.edges) {
-      const srcDef = registry.get(doc.nodes.find((n) => n.id === e.source)?.type ?? '');
-      const defaultHandle = srcDef?.outputs?.[0]?.key;
+      const srcNode = doc.nodes.find((n) => n.id === e.source);
+      const srcDef = registry.get(srcNode?.type ?? '');
+      const srcOuts = srcDef ? resolveOutputs(srcDef, srcNode) : [];
+      const defaultHandle = srcOuts[0]?.key;
       const handle = e.sourceHandle ?? defaultHandle ?? '__default__';
       const set = connectedOuts.get(e.source) ?? new Set<string>();
       set.add(handle);
@@ -314,7 +316,7 @@ export function Canvas({
     const leaves: Leaf[] = [];
     for (const n of doc.nodes) {
       const def = registry.get(n.type);
-      const outs = def?.outputs ?? [];
+      const outs = def ? resolveOutputs(def, n) : [];
       const connected = connectedOuts.get(n.id) ?? new Set<string>();
       const p = layout.positions.get(n.id);
       if (!p) continue;
@@ -322,7 +324,9 @@ export function Canvas({
       if (outs.length <= 1) {
         // Single-output (or undefined-def) — any outgoing edge counts as
         // connected, regardless of whether its sourceHandle was set
-        // explicitly or left default.
+        // explicitly or left default. Zero-output nodes (flow-output)
+        // never get a trailing +.
+        if (outs.length === 0) continue;
         if (connected.size === 0) {
           leaves.push({
             key: `leaf-${n.id}`,
@@ -336,7 +340,7 @@ export function Canvas({
         // that output's anchor.
         for (const out of outs) {
           if (connected.has(out.key)) continue;
-          const dx = outputOffset(def, out.key, nodeWidth);
+          const dx = outputOffset(outs, out.key, nodeWidth);
           leaves.push({
             key: `leaf-${n.id}-${out.key}`,
             x: p.x + dx,
@@ -379,8 +383,10 @@ export function Canvas({
             const s = layout.positions.get(e.source);
             const t = layout.positions.get(e.target);
             if (!s || !t) return null;
-            const srcDef = registry.get(doc.nodes.find((n) => n.id === e.source)?.type ?? '');
-            const dx = outputOffset(srcDef, e.sourceHandle, nodeWidth);
+            const srcNode = doc.nodes.find((n) => n.id === e.source);
+            const srcDef = registry.get(srcNode?.type ?? '');
+            const srcOuts = srcDef ? resolveOutputs(srcDef, srcNode) : [];
+            const dx = outputOffset(srcOuts, e.sourceHandle, nodeWidth);
             return (
               <Edge
                 key={e.id}
@@ -494,11 +500,9 @@ function EmptyPrompt({ onStart }: { onStart: () => void }) {
 }
 
 /* ====================================================================== */
-/* Insertion popover — tile grid + search + drill-in                       */
+/* Insertion popover — featured-tiles row + flat operation list            */
 /* ====================================================================== */
 
-/** Category-bundle tile shown alongside integration tiles in the top grid.
- *  Drilling in shows every node in that core category. */
 const CORE_BUNDLE_LABELS: Partial<Record<NodeCategory, string>> = {
   trigger: 'Triggers',
   action: 'Core Actions',
@@ -509,13 +513,12 @@ const CORE_BUNDLE_LABELS: Partial<Record<NodeCategory, string>> = {
   io: 'I/O',
 };
 
-/** Curated short list shown at the top of the grid when no search is active. */
-const MOST_USED_IDS = ['http-request', 'if', 'js-transform', 'delay', 'log', 'template'];
+const CORE_BUCKET_ID = '__core__';
 
-type PickerTile =
-  | { kind: 'most-used'; def: NodeDefinition }
-  | { kind: 'integration'; integration: IntegrationDefinition; count: number }
-  | { kind: 'category'; category: NodeCategory; label: string; count: number };
+/** Resolve "what bucket does this node belong to" for the featured-tiles row. */
+function bucketIdFor(def: NodeDefinition): string {
+  return def.integrationId ?? CORE_BUCKET_ID;
+}
 
 function InsertionPopover({
   insertion,
@@ -530,122 +533,73 @@ function InsertionPopover({
   onPick: (def: NodeDefinition) => void;
   onClose: () => void;
 }) {
-  // Insertion coords are in *world* (canvas) space; project to screen-relative
-  // pixels for absolute positioning inside the wrapper.
   const left = insertion.screenX * view.zoom + view.x;
   const top = insertion.screenY * view.zoom + view.y + 18;
 
   const wantsTriggerOnly = insertion.mode === 'first';
-  const headerText = wantsTriggerOnly ? 'Pick a trigger' : 'Add a step';
+  const headerText = wantsTriggerOnly ? 'Choose a trigger' : 'Choose an operation';
 
-  // All visible nodes given the insertion context. Triggers are excluded
-  // for non-first insertions; for the first-step picker we hide everything
-  // except triggers entirely (no integrations / no core tiles).
+  // Pool of nodes given the insertion context.
   const allNodes = useMemo(() => {
     return registry.list().filter((d) =>
       wantsTriggerOnly ? d.category === 'trigger' : d.category !== 'trigger',
     );
   }, [registry, wantsTriggerOnly]);
 
+  // Integrations with at least one available op.
   const integrationsAvailable = useMemo(() => {
     if (wantsTriggerOnly) return [] as IntegrationDefinition[];
     const byInt = registry.byIntegration();
     return registry.integrations().filter((i) => (byInt[i.id]?.length ?? 0) > 0);
   }, [registry, wantsTriggerOnly]);
 
-  const [query, setQuery] = useState('');
-  const [drillKind, setDrillKind] = useState<null | { kind: 'integration'; id: string } | { kind: 'category'; cat: NodeCategory }>(null);
+  const hasCoreNonIntegration = useMemo(() => {
+    return allNodes.some((d) => !d.integrationId);
+  }, [allNodes]);
 
-  // Reset drill when the popover re-opens at a new target.
+  const [query, setQuery] = useState('');
+  const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
+
   useEffect(() => {
-    setDrillKind(null);
     setQuery('');
+    setSelectedBucket(null);
   }, [insertion.mode, insertion.screenX, insertion.screenY]);
 
-  const searchActive = query.trim().length > 0;
+  const q = query.trim().toLowerCase();
+  const searchActive = q.length > 0;
 
-  // Build the top-level tile grid.
-  const tiles: PickerTile[] = useMemo(() => {
-    if (wantsTriggerOnly || searchActive) return [];
-
-    const out: PickerTile[] = [];
-
-    // Most used — promote a handful of common nodes.
-    for (const id of MOST_USED_IDS) {
-      const def = registry.get(id);
-      if (def && allNodes.includes(def)) out.push({ kind: 'most-used', def });
+  // Filtered op list: search overrides bucket filter so users always see all matches.
+  const ops: NodeDefinition[] = useMemo(() => {
+    let base = allNodes;
+    if (!searchActive && selectedBucket) {
+      base = base.filter((d) => bucketIdFor(d) === selectedBucket);
     }
-
-    // Integrations.
-    const byInt = registry.byIntegration();
-    for (const integ of integrationsAvailable) {
-      out.push({ kind: 'integration', integration: integ, count: byInt[integ.id]?.length ?? 0 });
-    }
-
-    // Core category bundles — everything not in an integration.
-    const grouped = registry.byCategory();
-    const coreOrder: NodeCategory[] = ['trigger', 'logic', 'transform', 'state', 'ai', 'action', 'io'];
-    for (const cat of coreOrder) {
-      const list = (grouped[cat] ?? []).filter((d) => !d.integrationId && allNodes.includes(d));
-      if (list.length === 0) continue;
-      const label = CORE_BUNDLE_LABELS[cat] ?? cat;
-      out.push({ kind: 'category', category: cat, label, count: list.length });
-    }
-
-    return out;
-  }, [registry, allNodes, integrationsAvailable, wantsTriggerOnly, searchActive]);
-
-  // Operations list shown when drilled in OR when search is active OR for
-  // the trigger-only first-step picker.
-  const operations: NodeDefinition[] = useMemo(() => {
     if (searchActive) {
-      const q = query.trim().toLowerCase();
-      return allNodes
-        .filter((d) =>
+      base = base.filter(
+        (d) =>
           d.name.toLowerCase().includes(q) ||
           d.description.toLowerCase().includes(q) ||
           (d.operationName ?? '').toLowerCase().includes(q) ||
           (d.integrationId ?? '').toLowerCase().includes(q),
-        )
-        .slice(0, 60);
+      );
     }
-    if (wantsTriggerOnly) {
-      return allNodes;
-    }
-    if (drillKind?.kind === 'integration') {
-      const byInt = registry.byIntegration();
-      return byInt[drillKind.id] ?? [];
-    }
-    if (drillKind?.kind === 'category') {
-      const grouped = registry.byCategory();
-      return (grouped[drillKind.cat] ?? []).filter((d) => !d.integrationId);
-    }
-    return [];
-  }, [searchActive, query, allNodes, wantsTriggerOnly, drillKind, registry]);
+    return base;
+  }, [allNodes, selectedBucket, searchActive, q]);
 
-  // What's the active drill-in header? Used for the title + back affordance.
-  const drillHeader = useMemo(() => {
-    if (searchActive) return null;
-    if (drillKind?.kind === 'integration') {
-      const integ = integrationsAvailable.find((i) => i.id === drillKind.id);
-      if (integ) return { title: integ.name, subtitle: integ.description, integration: integ };
-    }
-    if (drillKind?.kind === 'category') {
-      const label = CORE_BUNDLE_LABELS[drillKind.cat] ?? drillKind.cat;
-      return { title: label, subtitle: '', integration: undefined };
-    }
-    return null;
-  }, [drillKind, searchActive, integrationsAvailable]);
+  // Lookup integration metadata by id for the row subtitles.
+  const integrationLookup = useMemo(() => {
+    const m = new Map<string, IntegrationDefinition>();
+    for (const i of registry.integrations()) m.set(i.id, i);
+    return m;
+  }, [registry]);
 
   const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
-  const showOperations = wantsTriggerOnly || searchActive || drillKind !== null;
-  const showBack = !wantsTriggerOnly && !searchActive && drillKind !== null;
 
   return (
     <>
       <div className="tr-popover-scrim" onClick={onClose} />
       <div
-        className="tr-picker"
+        className="tr-picker tr-picker--clean"
         style={{ left, top }}
         onWheel={stop}
         onPointerDown={stop}
@@ -653,153 +607,159 @@ function InsertionPopover({
         onPointerUp={stop}
       >
         <div className="tr-picker__head">
-          {showBack ? (
-            <button
-              type="button"
-              className="tr-picker__back"
-              aria-label="Back to all steps"
-              onClick={() => setDrillKind(null)}
-            >
-              <ArrowLeft size={14} strokeWidth={2.2} />
-            </button>
-          ) : null}
-          <div className="tr-picker__title">
-            {drillHeader ? drillHeader.title : headerText}
-          </div>
+          <div className="tr-picker__title">{headerText}</div>
+          <button
+            type="button"
+            className="tr-picker__close"
+            aria-label="Close"
+            onClick={onClose}
+          >
+            ×
+          </button>
         </div>
 
-        {!wantsTriggerOnly ? (
-          <div className="tr-picker__search">
-            <Search size={14} strokeWidth={2} aria-hidden />
-            <input
-              autoFocus
-              type="text"
-              placeholder="Search steps and integrations…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') onClose();
-              }}
-            />
+        <div className="tr-picker__search">
+          <Search size={14} strokeWidth={2} aria-hidden />
+          <input
+            autoFocus
+            type="text"
+            placeholder="Search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') onClose();
+            }}
+          />
+          {query ? (
+            <button
+              type="button"
+              className="tr-picker__clear"
+              onClick={() => setQuery('')}
+              aria-label="Clear search"
+            >
+              ×
+            </button>
+          ) : null}
+        </div>
+
+        {!wantsTriggerOnly && (integrationsAvailable.length > 0 || hasCoreNonIntegration) ? (
+          <div className="tr-picker__featured" onWheel={stop}>
+            {hasCoreNonIntegration ? (
+              <FeaturedTile
+                label="Core"
+                accent="#475569"
+                lucideIcon="Zap"
+                selected={selectedBucket === CORE_BUCKET_ID}
+                onClick={() =>
+                  setSelectedBucket((cur) => (cur === CORE_BUCKET_ID ? null : CORE_BUCKET_ID))
+                }
+              />
+            ) : null}
+            {integrationsAvailable.map((integ) => (
+              <FeaturedTile
+                key={integ.id}
+                label={integ.name}
+                accent={integ.color ?? '#3b82f6'}
+                integration={integ}
+                selected={selectedBucket === integ.id}
+                onClick={() =>
+                  setSelectedBucket((cur) => (cur === integ.id ? null : integ.id))
+                }
+              />
+            ))}
           </div>
         ) : null}
 
-        {showOperations ? (
-          <div className="tr-picker__list" onWheel={stop}>
-            {operations.length === 0 ? (
-              <div className="tr-picker__empty">No matches.</div>
-            ) : (
-              operations.map((def) => (
+        <div className="tr-picker__rows" onWheel={stop}>
+          {ops.length === 0 ? (
+            <div className="tr-picker__empty">
+              {searchActive ? `No steps match "${query}".` : 'No steps available.'}
+            </div>
+          ) : (
+            ops.map((def) => {
+              const integ = def.integrationId
+                ? integrationLookup.get(def.integrationId)
+                : undefined;
+              const subtitle = integ?.name
+                ?? CORE_BUNDLE_LABELS[def.category]
+                ?? def.category;
+              const accent = def.color
+                ?? integ?.color
+                ?? CATEGORY_META[def.category]?.fg
+                ?? '#3b82f6';
+              return (
                 <button
                   key={def.id}
                   type="button"
-                  className="tr-picker__op"
+                  className="tr-picker__row"
                   onClick={() => onPick(def)}
+                  title={def.description}
+                  style={{ '--row-accent': accent } as CSSProperties}
                 >
-                  <span className="tr-picker__op-icon" aria-hidden>
-                    <NodeIcon definition={def} size={18} />
+                  <span className="tr-picker__row-icon" aria-hidden>
+                    <NodeIcon definition={def} size={20} />
                   </span>
-                  <span className="tr-picker__op-body">
-                    <span className="tr-picker__op-name">
+                  <span className="tr-picker__row-body">
+                    <span className="tr-picker__row-name">
                       {def.operationName ?? def.name}
                     </span>
-                    <span className="tr-picker__op-desc">{def.description}</span>
+                    <span className="tr-picker__row-sub">{subtitle}</span>
                   </span>
                 </button>
-              ))
-            )}
-          </div>
-        ) : (
-          <div className="tr-picker__grid" onWheel={stop}>
-            {tiles.length === 0 ? (
-              <div className="tr-picker__empty">No steps available.</div>
-            ) : (
-              <>
-                {renderTileSection('Most used', tiles.filter((t) => t.kind === 'most-used'), onPick, setDrillKind)}
-                {renderTileSection('Integrations', tiles.filter((t) => t.kind === 'integration'), onPick, setDrillKind)}
-                {renderTileSection('Core', tiles.filter((t) => t.kind === 'category'), onPick, setDrillKind)}
-              </>
-            )}
-          </div>
-        )}
+              );
+            })
+          )}
+        </div>
       </div>
     </>
   );
 }
 
-function renderTileSection(
-  label: string,
-  tiles: PickerTile[],
-  onPick: (def: NodeDefinition) => void,
-  setDrill: (d: null | { kind: 'integration'; id: string } | { kind: 'category'; cat: NodeCategory }) => void,
-) {
-  if (tiles.length === 0) return null;
+function FeaturedTile({
+  label,
+  accent,
+  integration,
+  selected,
+  onClick,
+}: {
+  label: string;
+  accent: string;
+  integration?: IntegrationDefinition;
+  /** Reserved for future core-bucket icon override. */
+  lucideIcon?: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
   return (
-    <section className="tr-picker__section">
-      <div className="tr-picker__section-head">{label}</div>
-      <div className="tr-picker__tiles">
-        {tiles.map((t) => {
-          if (t.kind === 'most-used') {
-            return (
-              <button
-                key={t.def.id}
-                type="button"
-                className="tr-picker__tile tr-picker__tile--quick"
-                onClick={() => onPick(t.def)}
-              >
-                <span className="tr-picker__tile-icon" aria-hidden>
-                  <NodeIcon definition={t.def} size={24} />
-                </span>
-                <span className="tr-picker__tile-name">
-                  {t.def.operationName ?? t.def.name}
-                </span>
-              </button>
-            );
-          }
-          if (t.kind === 'integration') {
-            const accent = t.integration.color;
-            const tileStyle = accent
-              ? ({
-                  '--tile-accent': accent,
-                  '--tile-bg': `${accent}14`,
-                } as CSSProperties)
-              : undefined;
-            return (
-              <button
-                key={t.integration.id}
-                type="button"
-                className="tr-picker__tile tr-picker__tile--integration"
-                onClick={() => setDrill({ kind: 'integration', id: t.integration.id })}
-                style={tileStyle}
-              >
-                <span className="tr-picker__tile-icon" aria-hidden>
-                  <IntegrationIcon integration={t.integration} size={26} />
-                </span>
-                <span className="tr-picker__tile-name">{t.integration.name}</span>
-                <span className="tr-picker__tile-meta">{t.count} action{t.count === 1 ? '' : 's'}</span>
-              </button>
-            );
-          }
-          const meta = CATEGORY_META[t.category];
-          const Icon = meta?.Icon;
-          return (
-            <button
-              key={t.category}
-              type="button"
-              className="tr-picker__tile tr-picker__tile--core"
-              onClick={() => setDrill({ kind: 'category', cat: t.category })}
-              style={meta ? ({ '--tile-accent': meta.fg, '--tile-bg': meta.bg } as CSSProperties) : undefined}
-            >
-              <span className="tr-picker__tile-icon" aria-hidden>
-                {Icon ? <Icon size={22} strokeWidth={2} /> : null}
-              </span>
-              <span className="tr-picker__tile-name">{t.label}</span>
-              <span className="tr-picker__tile-meta">{t.count} step{t.count === 1 ? '' : 's'}</span>
-            </button>
-          );
-        })}
-      </div>
-    </section>
+    <button
+      type="button"
+      className={`tr-picker__feat${selected ? ' tr-picker__feat--selected' : ''}`}
+      onClick={onClick}
+      style={{ '--feat-accent': accent } as CSSProperties}
+      title={label}
+    >
+      <span className="tr-picker__feat-square" aria-hidden>
+        {integration ? (
+          <IntegrationIcon integration={integration} size={22} monochrome />
+        ) : (
+          // Core bucket — render a generic spark icon.
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+          </svg>
+        )}
+      </span>
+      <span className="tr-picker__feat-label">{label}</span>
+    </button>
   );
 }
 

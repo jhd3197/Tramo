@@ -27,6 +27,10 @@ export {
   BUILTIN_INTEGRATIONS,
   BUILTIN_INTEGRATION_NODES,
   createRegistry,
+  resolveOutputs,
+  emptySwitchCase,
+  newSwitchCaseKey,
+  emptyFlowParam,
   type NodeRegistry,
 } from './nodes.js';
 export {
