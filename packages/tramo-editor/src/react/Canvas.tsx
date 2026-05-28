@@ -174,38 +174,8 @@ export function Canvas({
   const handleZoomIn = useCallback(() => zoomAtCenter(BUTTON_ZOOM_STEP), [zoomAtCenter]);
   const handleZoomOut = useCallback(() => zoomAtCenter(1 / BUTTON_ZOOM_STEP), [zoomAtCenter]);
 
-  /** Fit every node into the viewport with padding. No-op if the
-   *  layout hasn't computed yet or there are no nodes. */
-  const fitToView = useCallback(() => {
-    const wrapper = wrapperRef.current;
-    if (!wrapper || !layout || layout.positions.size === 0) return;
-    const rect = wrapper.getBoundingClientRect();
-    // Bounding box in world coords. Node positions are (centerX, topY)
-    // with a fixed nodeWidth / nodeHeight (see NodeView's left: x - w/2).
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minY = Infinity;
-    let maxY = -Infinity;
-    for (const p of layout.positions.values()) {
-      if (p.x - nodeWidth / 2 < minX) minX = p.x - nodeWidth / 2;
-      if (p.x + nodeWidth / 2 > maxX) maxX = p.x + nodeWidth / 2;
-      if (p.y < minY) minY = p.y;
-      if (p.y + nodeHeight > maxY) maxY = p.y + nodeHeight;
-    }
-    const PAD = 64;
-    const boxW = maxX - minX;
-    const boxH = maxY - minY;
-    const availW = Math.max(rect.width - PAD * 2, 1);
-    const availH = Math.max(rect.height - PAD * 2, 1);
-    const fitZoom = clamp(Math.min(availW / boxW, availH / boxH), minZoom, maxZoom);
-    const centerWorldX = (minX + maxX) / 2;
-    const centerWorldY = (minY + maxY) / 2;
-    setView({
-      zoom: fitZoom,
-      x: rect.width / 2 - centerWorldX * fitZoom,
-      y: rect.height / 2 - centerWorldY * fitZoom,
-    });
-  }, [layout, maxZoom, minZoom, nodeHeight, nodeWidth]);
+  /* fitToView is declared further down, just after `layout`, because it
+   * closes over it. */
 
   const onPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     // Only pan when clicking the canvas background. Anything interactive
@@ -264,6 +234,39 @@ export function Canvas({
       registry,
     });
   }, [doc, nodeWidth, nodeHeight, registry]);
+
+  /** Fit every node into the viewport with padding. No-op if the
+   *  layout hasn't computed yet or there are no nodes. Declared here
+   *  (not next to the other zoom helpers) because the dep array needs
+   *  `layout` to already be in scope. */
+  const fitToView = useCallback(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper || !layout || layout.positions.size === 0) return;
+    const rect = wrapper.getBoundingClientRect();
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const p of layout.positions.values()) {
+      if (p.x - nodeWidth / 2 < minX) minX = p.x - nodeWidth / 2;
+      if (p.x + nodeWidth / 2 > maxX) maxX = p.x + nodeWidth / 2;
+      if (p.y < minY) minY = p.y;
+      if (p.y + nodeHeight > maxY) maxY = p.y + nodeHeight;
+    }
+    const PAD = 64;
+    const boxW = maxX - minX;
+    const boxH = maxY - minY;
+    const availW = Math.max(rect.width - PAD * 2, 1);
+    const availH = Math.max(rect.height - PAD * 2, 1);
+    const fitZoom = clamp(Math.min(availW / boxW, availH / boxH), minZoom, maxZoom);
+    const centerWorldX = (minX + maxX) / 2;
+    const centerWorldY = (minY + maxY) / 2;
+    setView({
+      zoom: fitZoom,
+      x: rect.width / 2 - centerWorldX * fitZoom,
+      y: rect.height / 2 - centerWorldY * fitZoom,
+    });
+  }, [layout, maxZoom, minZoom, nodeHeight, nodeWidth]);
 
   /* ---------- centre on first layout ---------- */
   const didCentreRef = useRef(false);
@@ -872,20 +875,11 @@ function InsertionPopover({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  // The scrim swallows wheel/pointer so canvas can't pan or zoom under us.
-  const swallow = (e: React.SyntheticEvent) => {
-    e.stopPropagation();
-  };
-
   return createPortal(
     <>
       <div
         className="tr-popover-scrim tr-popover-scrim--fixed"
         onClick={onClose}
-        onWheel={swallow}
-        onPointerDown={swallow}
-        onPointerMove={swallow}
-        onPointerUp={swallow}
       />
       <div
         ref={popoverRef}

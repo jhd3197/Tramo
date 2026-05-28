@@ -1,0 +1,29 @@
+{
+  "name": "@tramo/cloudflare",
+  "version": "0.1.0",
+  "description": "Cloudflare integration pack for tramo — Workers, KV, R2, DNS, notification webhook.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {
+    "tramo-spec": "0.1.0",
+    "tramo-runtime": "0.1.0"
+  },
+  "devDependencies": { "typescript": "^5.4.0" },
+  "keywords": ["tramo", "workflow", "integration", "cloudflare", "workers", "kv", "r2"],
+  "author": "Juan Denis",
+  "license": "MIT",
+  "engines": { "node": ">=18" }
+}

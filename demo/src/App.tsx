@@ -19,6 +19,7 @@ import ANTHROPIC from 'tramo/integrations/anthropic';
 import LINEAR from 'tramo/integrations/linear';
 import AIRTABLE from 'tramo/integrations/airtable';
 import STRIPE from 'tramo/integrations/stripe';
+import CLOUDFLARE from 'tramo/integrations/cloudflare';
 import { SAMPLE_DOC, SUBFLOW_DOUBLER, SUBFLOW_GREETER } from './sample.js';
 
 /* Demo-only sub-flow catalog. A real host might persist these to a
@@ -50,6 +51,7 @@ const BRAND_PACKS = [
   { id: 'linear',    name: 'Linear',    pack: LINEAR },
   { id: 'airtable',  name: 'Airtable',  pack: AIRTABLE },
   { id: 'stripe',    name: 'Stripe',    pack: STRIPE },
+  { id: 'cloudflare', name: 'Cloudflare', pack: CLOUDFLARE },
 ] as const;
 
 function loadEnabledPacks(): Set<string> {

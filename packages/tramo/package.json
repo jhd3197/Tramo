@@ -67,6 +67,10 @@
     "./integrations/stripe": {
       "types": "./dist/integrations/stripe.d.ts",
       "import": "./dist/integrations/stripe.js"
+    },
+    "./integrations/cloudflare": {
+      "types": "./dist/integrations/cloudflare.d.ts",
+      "import": "./dist/integrations/cloudflare.js"
     }
   },
   "files": [
@@ -101,7 +105,8 @@
     "@tramo/anthropic": "0.1.0",
     "@tramo/linear": "0.1.0",
     "@tramo/airtable": "0.1.0",
-    "@tramo/stripe": "0.1.0"
+    "@tramo/stripe": "0.1.0",
+    "@tramo/cloudflare": "0.1.0"
   },
   "devDependencies": {
     "typescript": "^5.4.0"
