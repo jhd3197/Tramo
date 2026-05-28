@@ -1,8 +1,8 @@
 /**
  * Discord integration pack.
  *
- * Webhook-based operations (no OAuth required). Bot-API operations can be
- * added later by appending entries here + executors in tramo-runtime.
+ * Mix of webhook-based ops (no OAuth needed) and bot-API ops (needs a bot
+ * token + channel/user IDs).
  */
 
 import type { IntegrationDefinition, NodeDefinition } from '../types.js';
@@ -12,7 +12,7 @@ const COLOR = '#5865f2';
 export const DEFINITION: IntegrationDefinition = {
   id: 'discord',
   name: 'Discord',
-  description: 'Webhook messages, embeds, threads.',
+  description: 'Webhooks, bot messages, embeds, threads, reactions.',
   iconBrand: 'discord',
   color: COLOR,
   category: 'Communication',
@@ -22,8 +22,8 @@ export const NODES: NodeDefinition[] = [
   {
     id: 'discord-webhook-send',
     integrationId: 'discord',
-    name: 'Discord · Send Message',
-    operationName: 'Send message',
+    name: 'Discord · Send Message (Webhook)',
+    operationName: 'Send message (webhook)',
     category: 'action',
     description: 'Send a plain message via a Discord webhook.',
     icon: 'Cable',
@@ -74,6 +74,62 @@ export const NODES: NodeDefinition[] = [
       { key: 'webhook', type: 'url', label: 'Webhook URL', default: '' },
       { key: 'threadName', type: 'text', label: 'Thread name', default: 'tramo run' },
       { key: 'content', type: 'textarea', label: 'First message', default: '' },
+    ],
+  },
+  {
+    id: 'discord-bot-send',
+    integrationId: 'discord',
+    name: 'Discord · Send Channel Message (Bot)',
+    operationName: 'Send channel message (bot)',
+    category: 'action',
+    description: 'Send a message to a channel using a bot token (instead of a webhook).',
+    icon: 'Cable',
+    iconBrand: 'discord',
+    color: COLOR,
+    inputs: [{ key: 'in', label: 'Input', type: 'any' }],
+    outputs: [{ key: 'out', label: 'Message', type: 'object' }],
+    fields: [
+      { key: 'botToken', type: 'secret', label: 'Bot token' },
+      { key: 'channelId', type: 'text', label: 'Channel ID', default: '' },
+      { key: 'content', type: 'textarea', label: 'Content (supports {{var}})', default: '' },
+      { key: 'tts', type: 'boolean', label: 'Text-to-speech', default: false, optional: true },
+    ],
+  },
+  {
+    id: 'discord-dm-send',
+    integrationId: 'discord',
+    name: 'Discord · Send Direct Message',
+    operationName: 'Send DM',
+    category: 'action',
+    description: 'Open or reuse a DM channel with a user and send a message via bot.',
+    icon: 'Cable',
+    iconBrand: 'discord',
+    color: COLOR,
+    inputs: [{ key: 'in', label: 'Input', type: 'any' }],
+    outputs: [{ key: 'out', label: 'Message', type: 'object' }],
+    fields: [
+      { key: 'botToken', type: 'secret', label: 'Bot token' },
+      { key: 'userId', type: 'text', label: 'Recipient user ID', default: '' },
+      { key: 'content', type: 'textarea', label: 'Content (supports {{var}})', default: '' },
+    ],
+  },
+  {
+    id: 'discord-react',
+    integrationId: 'discord',
+    name: 'Discord · Add Reaction',
+    operationName: 'Add reaction',
+    category: 'action',
+    description: 'Add an emoji reaction to a message in a channel.',
+    icon: 'Cable',
+    iconBrand: 'discord',
+    color: COLOR,
+    inputs: [{ key: 'in', label: 'Input', type: 'any' }],
+    outputs: [{ key: 'out', label: 'Result', type: 'object' }],
+    fields: [
+      { key: 'botToken', type: 'secret', label: 'Bot token' },
+      { key: 'channelId', type: 'text', label: 'Channel ID', default: '' },
+      { key: 'messageId', type: 'text', label: 'Message ID', default: '' },
+      { key: 'emoji', type: 'text', label: 'Emoji (Unicode char or name:id)', default: '👍' },
     ],
   },
 ];
