@@ -21,11 +21,22 @@
     "test": "npm run test --workspaces --if-present",
     "demo": "npm run dev -w tramo-demo",
     "cli": "node packages/cli/dist/bin/tramo.js",
+    "version:sync": "node scripts/sync-versions.mjs",
+    "publish:all": "node scripts/publish-packages.mjs",
+    "publish:first": "node scripts/publish-packages.mjs",
     "clean": "node -e \"const fs=require('fs');['packages/spec/dist','packages/tramo-editor/dist','packages/tramo/dist','packages/runtime/dist','packages/cli/dist','demo/dist'].concat(['gmail','github','telegram','discord','notion','openai','anthropic','linear','airtable','stripe','cloudflare','google-drive','google-sheets','google-tasks','outlook','postgres','twilio','youtube','x','trello','box'].map(b=>`packages/integrations/${b}/dist`)).forEach(p=>fs.rmSync(p,{recursive:true,force:true}))\""
   },
   "author": "Juan Denis",
   "license": "MIT",
   "engines": {
     "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jhd3197/tramo.git"
+  },
+  "homepage": "https://github.com/jhd3197/tramo#readme",
+  "bugs": {
+    "url": "https://github.com/jhd3197/tramo/issues"
   }
 }

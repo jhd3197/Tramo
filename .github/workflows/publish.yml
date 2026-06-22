@@ -1,0 +1,116 @@
+name: Publish to npm and GitHub Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: read
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Ignore bot
+        if: github.actor == 'github-actions[bot]'
+        run: |
+          echo "Commit made by GitHub Actions. Exiting."
+          exit 0
+
+      - name: Bump Version and Push Tag
+        id: bump_version
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          release_branches: main
+          default_bump: patch
+          tag_prefix: 'v'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+
+      - name: Sync monorepo versions
+        run: node scripts/sync-versions.mjs ${{ steps.bump_version.outputs.new_version }}
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json packages/*/package.json packages/integrations/*/package.json demo/package.json
+          git commit -m "🔖 Version v${{ steps.bump_version.outputs.new_version }} [skip ci]" || true
+          git push origin main || true
+
+      - name: Fetch Latest Pull Request Info
+        id: fetch_pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prs = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed',
+              base: 'main',
+              head: 'dev',
+              sort: 'updated',
+              direction: 'desc',
+              per_page: 1
+            });
+
+            if (prs.data.length > 0) {
+              const pr = prs.data[0];
+              return {
+                title: pr.title,
+                body: (pr.body || 'No description provided').replace(/\r\n/g, '\n'),
+                number: pr.number,
+                url: pr.html_url,
+                author: pr.user.login
+              };
+            }
+            return null;
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.bump_version.outputs.new_version }}
+          name: v${{ steps.bump_version.outputs.new_version }}
+          body: |
+            ## Changes
+            ${{ steps.fetch_pr.outputs.result != 'null' && fromJSON(steps.fetch_pr.outputs.result).body || 'Version update' }}
+
+            ## Details
+            - Version: v${{ steps.bump_version.outputs.new_version }}
+            ${{ steps.fetch_pr.outputs.result != 'null' && format('- PR: #{0} by @{1}', fromJSON(steps.fetch_pr.outputs.result).number, fromJSON(steps.fetch_pr.outputs.result).author) || '' }}
+            ${{ steps.fetch_pr.outputs.result != 'null' && format('- PR URL: {0}', fromJSON(steps.fetch_pr.outputs.result).url) || '' }}
+          draft: false
+          prerelease: false
+
+      - name: Install dependencies
+        # Lockfile is Windows-generated and pins win32-only rollup deps;
+        # delete it so npm resolves the Linux binary fresh on this runner.
+        # https://github.com/npm/cli/issues/4828.
+        run: |
+          rm -f package-lock.json
+          npm install --no-audit --no-fund
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Publish to npm (latest)
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          CI: true
+        run: node scripts/publish-packages.mjs --skip-build

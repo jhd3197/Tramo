@@ -12,7 +12,10 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch"
@@ -21,9 +24,26 @@
     "@tramo/spec": "0.1.0",
     "@tramo/runtime": "0.1.0"
   },
-  "devDependencies": { "typescript": "^5.4.0" },
-  "keywords": ["tramo", "workflow", "integration", "notion"],
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  },
+  "keywords": [
+    "tramo",
+    "workflow",
+    "integration",
+    "notion"
+  ],
   "author": "Juan Denis",
   "license": "MIT",
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jhd3197/tramo.git"
+  },
+  "homepage": "https://github.com/jhd3197/tramo#readme",
+  "bugs": {
+    "url": "https://github.com/jhd3197/tramo/issues"
+  }
 }

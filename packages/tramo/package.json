@@ -123,8 +123,12 @@
     "react-dom": "^18.0.0 || ^19.0.0"
   },
   "peerDependenciesMeta": {
-    "react": { "optional": true },
-    "react-dom": { "optional": true }
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
   },
   "scripts": {
     "build": "npm run build:ts && npm run build:css",
@@ -174,5 +178,13 @@
   "license": "MIT",
   "engines": {
     "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jhd3197/tramo.git"
+  },
+  "homepage": "https://github.com/jhd3197/tramo#readme",
+  "bugs": {
+    "url": "https://github.com/jhd3197/tramo/issues"
   }
 }

@@ -1,0 +1,110 @@
+name: Publish Dev Version to npm
+
+on:
+  push:
+    branches: [dev]
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: npm
+      # Windows-generated lockfile pins win32-only rollup deps;
+      # delete it so npm resolves the Linux binary fresh on this runner.
+      # https://github.com/npm/cli/issues/4828
+      - run: rm -f package-lock.json
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - run: npm test
+
+  dev-pre-release:
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Ignore bot
+        if: github.actor == 'github-actions[bot]'
+        run: |
+          echo "Commit made by GitHub Actions. Exiting."
+          exit 0
+
+      - name: Fetch tags
+        run: |
+          git fetch --tags --prune
+          git tag --list | sort -V
+
+      - name: Compute next dev version (next patch base)
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          last_release="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
+          if [[ -z "${last_release}" ]]; then
+            base="0.1.0"
+          else
+            v="${last_release#v}"
+            IFS=. read -r MA MI PA <<< "${v}"
+            PA=$((PA+1))
+            base="${MA}.${MI}.${PA}"
+          fi
+
+          # find last dev tag for this base: v1.0.1-dev.*
+          last_dev="$(git tag -l "v${base}-dev.*" | sort -V | tail -1 || true)"
+          if [[ -z "${last_dev}" ]]; then
+            dev_n=1
+          else
+            suffix="${last_dev##*-dev.}"
+            dev_n=$((suffix+1))
+          fi
+
+          new="${base}-dev.${dev_n}"
+          echo "base=${base}" >> $GITHUB_OUTPUT
+          echo "new=${new}"   >> $GITHUB_OUTPUT
+          echo "tag=v${new}"  >> $GITHUB_OUTPUT
+          echo "Computed dev version: ${new}"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+
+      - name: Sync monorepo versions
+        run: node scripts/sync-versions.mjs ${{ steps.ver.outputs.new }}
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create and push dev tag
+        run: |
+          git tag -a "${{ steps.ver.outputs.tag }}" -m "pre: ${{ steps.ver.outputs.new }}"
+          git push origin "${{ steps.ver.outputs.tag }}"
+
+      - name: Install dependencies
+        # Same lockfile-platform-mismatch fix as the test job.
+        run: |
+          rm -f package-lock.json
+          npm install --no-audit --no-fund
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish to npm (dev dist-tag)
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          CI: true
+        run: node scripts/publish-packages.mjs --skip-build --tag dev

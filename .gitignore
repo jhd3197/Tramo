@@ -4,6 +4,7 @@ dist/
 *.log
 .env
 .env.local
+.npmrc
 .vite/
 coverage/
 .turbo/

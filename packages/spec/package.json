@@ -53,5 +53,13 @@
   "license": "MIT",
   "engines": {
     "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jhd3197/tramo.git"
+  },
+  "homepage": "https://github.com/jhd3197/tramo#readme",
+  "bugs": {
+    "url": "https://github.com/jhd3197/tramo/issues"
   }
 }
