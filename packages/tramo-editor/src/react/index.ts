@@ -30,3 +30,57 @@ export {
 } from './varSuggestions.js';
 export { VarPicker, type VarPickerProps } from './VarPicker.js';
 export { invertPatch } from './invertPatch.js';
+
+/* --- canvas export (PNG/SVG) --- */
+export {
+  workflowToSvg,
+  downloadWorkflowSvg,
+  downloadWorkflowPng,
+  type SvgExportOptions,
+} from './exportSvg.js';
+export { CanvasExportButton, type CanvasExportButtonProps } from './CanvasExportButton.js';
+
+/* --- workflow diff --- */
+export {
+  diffWorkflows,
+  summarizeDiff,
+  type WorkflowDiff,
+  type NodeChange,
+  type EdgeChange,
+  type FieldChange,
+} from './diff.js';
+export { DiffView, type DiffViewProps } from './DiffView.js';
+
+/* --- variable references / go-to-definition --- */
+export {
+  extractReferences,
+  buildReferenceIndex,
+  findReferences,
+  resolveReferenceTarget,
+  type VarReference,
+} from './references.js';
+
+/* --- live run visualization --- */
+export {
+  deriveRunState,
+  isEdgeActive,
+  type DerivedRunState,
+  type RunEventLike,
+} from './runStatus.js';
+
+/* --- node grouping / sub-graphs --- */
+export {
+  listGroups,
+  groupForNode,
+  createGroup,
+  removeGroup,
+  renameGroup,
+  setGroupCollapsed,
+  toggleGroup,
+  setNodeGroup,
+  hiddenNodeIds,
+} from './groups.js';
+
+/* --- dashboard + usage panels --- */
+export { Dashboard, type DashboardProps, type DashboardRun, type DashboardStats } from './Dashboard.js';
+export { UsagePanel, type UsagePanelProps, type UsageLike } from './UsagePanel.js';

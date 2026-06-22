@@ -153,6 +153,7 @@ function cloneDoc(doc: WorkflowDoc): WorkflowDoc {
       ...doc.meta,
       tags: doc.meta.tags ? [...doc.meta.tags] : undefined,
       mcpServers: doc.meta.mcpServers ? doc.meta.mcpServers.map(cloneMcpServer) : undefined,
+      groups: doc.meta.groups ? doc.meta.groups.map((g) => ({ ...g, nodeIds: [...g.nodeIds] })) : undefined,
     },
   };
 }

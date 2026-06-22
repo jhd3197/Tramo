@@ -35,6 +35,12 @@ export interface WorkflowMeta {
   /** Optional human-readable version label, e.g. "v2 — added refund branch". */
   versionTag?: string;
   /**
+   * Visual groupings of nodes ("compound nodes"). Purely an editor-side
+   * abstraction — the runtime ignores them. A collapsed group can be drawn
+   * as a single placeholder; members are addressed by id as usual.
+   */
+  groups?: NodeGroup[];
+  /**
    * MCP servers imported into this workflow. Each entry both persists the
    * server's connection info (URL + optional bearer token) and caches the
    * tools/list response so the picker can render tiles offline. The editor
@@ -43,6 +49,21 @@ export interface WorkflowMeta {
    * their own copy of serverUrl + toolName.
    */
   mcpServers?: MCPServerRef[];
+}
+
+/**
+ * A named, optionally-collapsible group of nodes. Editor-only metadata for
+ * abstracting large graphs; the runtime never reads it.
+ */
+export interface NodeGroup {
+  id: string;
+  label: string;
+  /** Member node ids. */
+  nodeIds: string[];
+  /** When true, the editor may render the group as one collapsed placeholder. */
+  collapsed?: boolean;
+  /** Accent color (hex). */
+  color?: string;
 }
 
 /* ====================================================================== */

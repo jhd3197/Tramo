@@ -99,6 +99,18 @@ in the browser, on a Node server, in a CLI job, or in Python.
 
 **Agent Chat** — Built-in Anthropic-powered assistant that edits the doc through the same `apply_patch` surface as the UI.
 
+**Canvas Export** — Download the workflow as SVG or PNG for docs, PRs, and runbooks (`workflowToSvg`, `CanvasExportButton`).
+
+**Live Run Visualization** — `deriveRunState` turns a `RunEvent` stream into per-node status + active-node highlighting + streamed LLM chunks.
+
+**Version Diff** — `diffWorkflows` + `DiffView` show exactly what changed (great for reviewing agent edits before accepting).
+
+**Go-to-Definition** — `findReferences` / `resolveReferenceTarget` jump from a `{{steps.x.y}}` chip to its source node and list all references.
+
+**Dashboard & Cost Panels** — `Dashboard` and `UsagePanel` surface recent runs, success rate, and token spend.
+
+**Node Grouping** — collapse a set of nodes into a named group (`createGroup`, `toggleGroup`).
+
 ### ⚡ Runtime
 
 **Same JSON, Everywhere** — A `WorkflowDoc` runs in the browser, Node CLI (`@tramo/cli`), or a future Python runtime with identical semantics.

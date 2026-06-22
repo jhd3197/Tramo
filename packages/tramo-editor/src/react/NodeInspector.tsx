@@ -262,6 +262,8 @@ function NodeInspectorBody({
         ))}
       </div>
 
+      <AdvancedSection node={node} onApply={onApply} />
+
       {saveState ? <SaveBadge state={saveState} /> : null}
     </div>
   );
@@ -780,6 +782,105 @@ function PickerTextField({
         />
       ) : null}
     </div>
+  );
+}
+
+/* ====================================================================== */
+/* AdvancedSection — execution policy, retry/backoff, and access control    */
+/* ====================================================================== */
+
+function AdvancedSection({ node, onApply }: { node: WorkflowNode; onApply: (patch: Patch) => void }) {
+  const retry = node.retry;
+  const setProp = (patch: Partial<Pick<WorkflowNode, 'runAfter' | 'retry' | 'sensitive' | 'requiredRole'>>) =>
+    onApply({ kind: 'update-node', id: node.id, patch });
+
+  const setRetry = (changes: Partial<NonNullable<WorkflowNode['retry']>>) => {
+    const next = { count: 0, ...retry, ...changes };
+    if (!next.count || next.count <= 0) {
+      setProp({ retry: undefined });
+    } else {
+      setProp({ retry: next });
+    }
+  };
+
+  return (
+    <details className="tr-inspector__advanced" style={{ marginTop: 14, borderTop: '1px solid #e2e8f0', paddingTop: 10 }}>
+      <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#475569' }}>Advanced</summary>
+
+      <div className="tr-field" style={{ marginTop: 10 }}>
+        <label className="tr-field__label">Run after</label>
+        <select
+          className="tr-input"
+          value={node.runAfter ?? 'on-success'}
+          onChange={(e) => setProp({ runAfter: e.target.value as WorkflowNode['runAfter'] })}
+        >
+          <option value="on-success">On success (default)</option>
+          <option value="on-error">On error (fallback branch)</option>
+          <option value="always">Always</option>
+        </select>
+      </div>
+
+      <div className="tr-field">
+        <label className="tr-field__label">Retry attempts</label>
+        <input
+          type="number"
+          min={0}
+          className="tr-input"
+          value={retry?.count ?? 0}
+          onChange={(e) => setRetry({ count: Number(e.target.value) })}
+        />
+        <div className="tr-field__help">Extra attempts if the node throws. 0 = no retry.</div>
+      </div>
+
+      {retry && retry.count > 0 ? (
+        <>
+          <div className="tr-field">
+            <label className="tr-field__label">Base delay (ms)</label>
+            <input
+              type="number"
+              min={0}
+              className="tr-input"
+              value={retry.delayMs ?? 0}
+              onChange={(e) => setRetry({ delayMs: Number(e.target.value) })}
+            />
+          </div>
+          <div className="tr-field">
+            <label className="tr-field__label">Backoff</label>
+            <select
+              className="tr-input"
+              value={retry.backoff ?? 'fixed'}
+              onChange={(e) => setRetry({ backoff: e.target.value as 'fixed' | 'linear' | 'exponential' })}
+            >
+              <option value="fixed">Fixed</option>
+              <option value="linear">Linear</option>
+              <option value="exponential">Exponential</option>
+            </select>
+          </div>
+        </>
+      ) : null}
+
+      <div className="tr-field tr-field--row">
+        <input
+          id="tr-adv-sensitive"
+          type="checkbox"
+          checked={Boolean(node.sensitive)}
+          onChange={(e) => setProp({ sensitive: e.target.checked || undefined })}
+        />
+        <label htmlFor="tr-adv-sensitive" className="tr-field__label">Sensitive (badge + audit)</label>
+      </div>
+
+      <div className="tr-field">
+        <label className="tr-field__label">Required role</label>
+        <input
+          type="text"
+          className="tr-input"
+          placeholder="e.g. admin (blank = no gate)"
+          defaultValue={node.requiredRole ?? ''}
+          onBlur={(e) => setProp({ requiredRole: e.target.value.trim() || undefined })}
+        />
+        <div className="tr-field__help">The runner skips this node unless the run's roles include this role.</div>
+      </div>
+    </details>
   );
 }
 
