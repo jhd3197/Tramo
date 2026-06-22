@@ -1,6 +1,6 @@
 {
   "name": "@tramo/outlook",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Outlook integration pack for tramo — Microsoft 365 mail + calendar via Microsoft Graph.",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,8 +21,8 @@
     "dev": "tsc -p tsconfig.json --watch"
   },
   "dependencies": {
-    "@tramo/spec": "0.0.1",
-    "@tramo/runtime": "0.0.1"
+    "@tramo/spec": "0.1.0",
+    "@tramo/runtime": "0.1.0"
   },
   "devDependencies": {
     "typescript": "^5.4.0"
