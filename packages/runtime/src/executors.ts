@@ -657,20 +657,31 @@ const aiPrompt: NodeExecutor = {
     const provider = String(ctx.config.provider ?? 'mock');
     const promptTpl = String(ctx.config.prompt ?? '');
     const prompt = renderTemplate(promptTpl, ctx.inputs.in, ctx.vars, ctx.steps);
-    const system = ctx.config.system ? String(ctx.config.system) : undefined;
+    const system = ctx.config.system
+      ? renderTemplate(String(ctx.config.system), ctx.inputs.in, ctx.vars, ctx.steps)
+      : undefined;
     const model = String(ctx.config.model ?? 'claude-opus-4-7');
     const maxTokens = Number(ctx.config.maxTokens ?? 1024);
     const apiKey = ctx.config.apiKey ? String(ctx.config.apiKey) : undefined;
+    const stream = ctx.config.stream === true || ctx.config.stream === 'true';
+    const onChunk = stream ? (t: string) => ctx.emitChunk(t) : undefined;
 
     if (provider === 'mock') {
       ctx.log.info('mock LLM (echo)', { prompt });
-      return { out: `[mock:${model}] ${prompt}` };
+      const text = `[mock:${model}] ${prompt}`;
+      if (onChunk) for (const word of text.split(/(\s+)/)) onChunk(word);
+      ctx.reportUsage({ provider: 'mock', model, inputTokens: estimateTokens(prompt), outputTokens: estimateTokens(text), costUsd: 0 });
+      return { out: text };
     }
     if (provider === 'anthropic') {
-      return { out: await callAnthropic({ apiKey, model, system, prompt, maxTokens, signal: ctx.signal }) };
+      const r = await callAnthropic({ apiKey, model, system, prompt, maxTokens, signal: ctx.signal, onChunk });
+      ctx.reportUsage({ provider: 'anthropic', model, ...r.usage });
+      return { out: r.text };
     }
     if (provider === 'openai') {
-      return { out: await callOpenAI({ apiKey, model, system, prompt, maxTokens, signal: ctx.signal }) };
+      const r = await callOpenAI({ apiKey, model, system, prompt, maxTokens, signal: ctx.signal, onChunk });
+      ctx.reportUsage({ provider: 'openai', model, ...r.usage });
+      return { out: r.text };
     }
     throw new Error(`Unknown AI provider: ${provider}`);
   },
@@ -1099,16 +1110,56 @@ function makeScopedConsole(ctx: ExecutionContext): Console {
  * executor and pass it via createExecutorRegistry.
  */
 
-async function callAnthropic(opts: {
+interface LlmCall {
   apiKey: string | undefined;
   model: string;
   system: string | undefined;
   prompt: string;
   maxTokens: number;
   signal: AbortSignal;
-}): Promise<string> {
+  /** When set, the call streams and invokes this per text delta. */
+  onChunk?: (text: string) => void;
+}
+
+interface LlmResult {
+  text: string;
+  usage: { inputTokens?: number; outputTokens?: number };
+}
+
+/** Rough token estimate (~4 chars/token) for providers/paths that don't
+ *  report usage (e.g. the mock provider). */
+function estimateTokens(s: string): number {
+  return Math.ceil((s?.length ?? 0) / 4);
+}
+
+/** Parse an SSE response body into `{ data }` events. */
+async function* sseEvents(res: Response): AsyncGenerator<string> {
+  const reader = res.body?.getReader();
+  if (!reader) return;
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buffer.indexOf('\n\n')) >= 0) {
+      const block = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      const data = block
+        .split('\n')
+        .filter((l) => l.startsWith('data:'))
+        .map((l) => l.slice(5).trim())
+        .join('\n');
+      if (data) yield data;
+    }
+  }
+}
+
+async function callAnthropic(opts: LlmCall): Promise<LlmResult> {
   const apiKey = opts.apiKey ?? (typeof process !== 'undefined' ? process.env?.ANTHROPIC_API_KEY : undefined);
   if (!apiKey) throw new Error('ai-prompt: Anthropic API key missing (config.apiKey or ANTHROPIC_API_KEY).');
+  const streaming = !!opts.onChunk;
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -1121,41 +1172,106 @@ async function callAnthropic(opts: {
       max_tokens: opts.maxTokens,
       ...(opts.system ? { system: opts.system } : {}),
       messages: [{ role: 'user', content: opts.prompt }],
+      ...(streaming ? { stream: true } : {}),
     }),
     signal: opts.signal,
   });
   if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`);
-  const data = (await res.json()) as { content: Array<{ type: string; text?: string }> };
-  return data.content.filter((b) => b.type === 'text').map((b) => b.text ?? '').join('');
+
+  if (!streaming) {
+    const data = (await res.json()) as {
+      content: Array<{ type: string; text?: string }>;
+      usage?: { input_tokens?: number; output_tokens?: number };
+    };
+    const text = data.content.filter((b) => b.type === 'text').map((b) => b.text ?? '').join('');
+    return { text, usage: { inputTokens: data.usage?.input_tokens, outputTokens: data.usage?.output_tokens } };
+  }
+
+  let text = '';
+  let inputTokens: number | undefined;
+  let outputTokens: number | undefined;
+  for await (const data of sseEvents(res)) {
+    let json: Record<string, unknown>;
+    try {
+      json = JSON.parse(data);
+    } catch {
+      continue;
+    }
+    const type = json.type;
+    if (type === 'message_start') {
+      inputTokens = (json.message as { usage?: { input_tokens?: number } })?.usage?.input_tokens;
+    } else if (type === 'content_block_delta') {
+      const delta = (json.delta as { text?: string })?.text;
+      if (delta) {
+        text += delta;
+        opts.onChunk!(delta);
+      }
+    } else if (type === 'message_delta') {
+      const out = (json.usage as { output_tokens?: number })?.output_tokens;
+      if (out != null) outputTokens = out;
+    }
+  }
+  return { text, usage: { inputTokens, outputTokens } };
 }
 
-async function callOpenAI(opts: {
-  apiKey: string | undefined;
-  model: string;
-  system: string | undefined;
-  prompt: string;
-  maxTokens: number;
-  signal: AbortSignal;
-}): Promise<string> {
+async function callOpenAI(opts: LlmCall): Promise<LlmResult> {
   const apiKey = opts.apiKey ?? (typeof process !== 'undefined' ? process.env?.OPENAI_API_KEY : undefined);
   if (!apiKey) throw new Error('ai-prompt: OpenAI API key missing (config.apiKey or OPENAI_API_KEY).');
   const messages: Array<{ role: string; content: string }> = [];
   if (opts.system) messages.push({ role: 'system', content: opts.system });
   messages.push({ role: 'user', content: opts.prompt });
+  const streaming = !!opts.onChunk;
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       authorization: `Bearer ${apiKey}`,
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ model: opts.model, messages, max_tokens: opts.maxTokens }),
+    body: JSON.stringify({
+      model: opts.model,
+      messages,
+      max_tokens: opts.maxTokens,
+      ...(streaming ? { stream: true, stream_options: { include_usage: true } } : {}),
+    }),
     signal: opts.signal,
   });
   if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`);
-  const data = (await res.json()) as {
-    choices: Array<{ message: { content: string } }>;
-  };
-  return data.choices[0]?.message.content ?? '';
+
+  if (!streaming) {
+    const data = (await res.json()) as {
+      choices: Array<{ message: { content: string } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
+    return {
+      text: data.choices[0]?.message.content ?? '',
+      usage: { inputTokens: data.usage?.prompt_tokens, outputTokens: data.usage?.completion_tokens },
+    };
+  }
+
+  let text = '';
+  let inputTokens: number | undefined;
+  let outputTokens: number | undefined;
+  for await (const data of sseEvents(res)) {
+    if (data === '[DONE]') break;
+    let json: Record<string, unknown>;
+    try {
+      json = JSON.parse(data);
+    } catch {
+      continue;
+    }
+    const choices = json.choices as Array<{ delta?: { content?: string } }> | undefined;
+    const delta = choices?.[0]?.delta?.content;
+    if (delta) {
+      text += delta;
+      opts.onChunk!(delta);
+    }
+    const usage = json.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
+    if (usage) {
+      inputTokens = usage.prompt_tokens;
+      outputTokens = usage.completion_tokens;
+    }
+  }
+  return { text, usage: { inputTokens, outputTokens } };
 }
 
 /* ====================================================================== */

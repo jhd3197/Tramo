@@ -58,6 +58,45 @@ export interface ExecutionContext {
    * would be a circular import).
    */
   invokeFlow?: (doc: WorkflowDoc, input: unknown) => Promise<RunResult>;
+  /**
+   * Report token usage / cost for this node. AI executors call this with the
+   * provider's usage numbers; the runner aggregates them into
+   * `RunResult.usage` and emits a `node-usage` event. If `costUsd` is omitted
+   * the runner estimates it from the model + token counts.
+   */
+  reportUsage: (usage: TokenUsage) => void;
+  /**
+   * Stream a partial output chunk to subscribers (e.g. LLM tokens as they
+   * arrive). Emits a `node-chunk` event. `channel` distinguishes multiple
+   * streams from one node (default `'out'`).
+   */
+  emitChunk: (chunk: string, channel?: string) => void;
+}
+
+/** Token usage + estimated cost for a single AI call. */
+export interface TokenUsage {
+  provider?: string;
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  /** Cache-related tokens when the provider reports them (Anthropic). */
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  totalTokens?: number;
+  /** Estimated spend in USD. Filled by the runner if the executor omits it. */
+  costUsd?: number;
+}
+
+/** Aggregated usage across a whole run. */
+export interface RunUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  /** Per-node breakdown, keyed by node id. */
+  byNode: Record<string, TokenUsage>;
+  /** Per-model breakdown, keyed by `provider/model`. */
+  byModel: Record<string, TokenUsage>;
 }
 
 export interface NodeLogger {
@@ -172,10 +211,14 @@ export interface ResumeState {
 
 export interface RunResult {
   ok: boolean;
+  /** Per-run identifier (matches the runId on every event). */
+  runId: string;
   /** Final results keyed by node id (whatever each node emitted). */
   nodeResults: Record<string, NodeExecutionResult>;
   /** Per-node status snapshots in execution order. */
   events: RunEvent[];
+  /** Aggregated token usage + estimated cost (present when any node reported usage). */
+  usage?: RunUsage;
   error?: string;
 }
 
@@ -188,6 +231,8 @@ export type RunEvent =
   | { type: 'node-success'; runId: string; nodeId: string; output: NodeExecutionResult; durationMs: number }
   | { type: 'node-error'; runId: string; nodeId: string; error: string; durationMs: number }
   | { type: 'node-skip'; runId: string; nodeId: string; reason: string }
+  | { type: 'node-chunk'; runId: string; nodeId: string; chunk: string; channel: string }
+  | { type: 'node-usage'; runId: string; nodeId: string; usage: TokenUsage }
   | { type: 'run-end'; runId: string; ok: boolean; error?: string };
 
 export type { WorkflowDoc };

@@ -1,4 +1,4 @@
-export { run } from './runner.js';
+export { run, runStream } from './runner.js';
 export type {
   ExecutionContext,
   ExecutorRegistry,
@@ -10,7 +10,15 @@ export type {
   RunEvent,
   RunOptions,
   RunResult,
+  RunUsage,
+  TokenUsage,
 } from './types.js';
+export {
+  estimateCost,
+  priceFor,
+  setPricing,
+  type ModelPrice,
+} from './pricing.js';
 export {
   createLogger,
   createJsonLogger,

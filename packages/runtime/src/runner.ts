@@ -4,21 +4,23 @@
  * Strategy: topo-sort the graph, run each node when its inputs are ready,
  * pipe outputs along edges to downstream input ports, emit per-node events.
  *
- * Concurrency note: v0.1 runs sequentially in topological order. This is
- * simple and right for chain-shaped flows, which is most automation. Adding
- * "run independent branches in parallel" is straightforward later (Kahn's
- * algorithm already exposes the ready-set per layer — we just sequence
- * within a layer for now).
+ * Concurrency: nodes are scheduled in topological layers using Kahn's
+ * ready-set. Every node whose dependencies have resolved runs concurrently,
+ * bounded by RunOptions.concurrency (default Infinity; 1 = legacy sequential
+ * walk). A loop pair is one scheduling unit owned by its loop-start.
  *
  * If-style branching: a node may return `{ true: x }` *or* `{ false: y }`
  * (not both). Downstream nodes that wired to the unfired port are skipped.
  *
  * Loops: `loop-start` / `loop-end` are a pair matched by `config.loopId`.
  * A pre-pass computes each pair's body subgraph (nodes downstream of start
- * and upstream of end). When the outer iteration reaches a loop-start, the
- * runner resolves the source array and re-executes the body once per item,
- * accumulating the value arriving at loop-end. Body nodes are then marked
- * visited so the outer iteration skips past them.
+ * and upstream of end). The loop-start drives the body sequentially once per
+ * item, accumulating the value arriving at loop-end; its whole interior is
+ * marked resolved so the layer scheduler steps past it.
+ *
+ * Reliability: per-node retry/backoff, secret redaction, an audit sink, role
+ * gating, token/cost accounting, and checkpoint/resume are all layered in
+ * here. A streaming variant, runStream(), yields events live.
  */
 
 import { topoSort, getIncomingEdges, getOutgoingEdges, SPEC_VERSION, buildStepSlugMap } from '@tramo/spec';
@@ -31,10 +33,13 @@ import type {
   RunEvent,
   RunOptions,
   RunResult,
+  RunUsage,
+  TokenUsage,
   WorkflowDoc,
 } from './types.js';
 import { createRedactor, type Redactor } from './redact.js';
 import type { AuditRecord } from './audit.js';
+import { estimateCost } from './pricing.js';
 
 interface LoopPlan {
   startId: string;
@@ -103,7 +108,7 @@ export async function run(
   if (doc.version !== SPEC_VERSION) {
     const err = `Workflow spec version ${doc.version} is not supported by this runtime (expects ${SPEC_VERSION}).`;
     emit({ type: 'run-end', runId, ok: false, error: err });
-    return { ok: false, nodeResults: {}, events, error: err };
+    return { ok: false, runId, nodeResults: {}, events, error: err };
   }
 
   /* 1. topo sort + abort on cycle */
@@ -111,7 +116,7 @@ export async function run(
   if (!topo.ok) {
     const err = topo.error ?? 'Cycle detected.';
     emit({ type: 'run-end', runId, ok: false, error: err });
-    return { ok: false, nodeResults: {}, events, error: err };
+    return { ok: false, runId, nodeResults: {}, events, error: err };
   }
 
   /* 1b. plan loop pairs — fails the whole run on mismatch so the user sees
@@ -119,7 +124,7 @@ export async function run(
   const planResult = planLoops(doc, topo.order);
   if (!planResult.ok) {
     emit({ type: 'run-end', runId, ok: false, error: planResult.error });
-    return { ok: false, nodeResults: {}, events, error: planResult.error };
+    return { ok: false, runId, nodeResults: {}, events, error: planResult.error };
   }
   const loopPlansByStart = planResult.plansByStart;
   const loopBodyIds = planResult.bodyIds;
@@ -156,6 +161,21 @@ export async function run(
     skipped: Object.fromEntries(skippedReason),
     vars: { ...vars },
   });
+
+  /* Usage accumulation — executors call ctx.reportUsage; we fill in missing
+   * cost from the pricing table and aggregate per-node and per-model. */
+  const usageByNode: Record<string, TokenUsage> = {};
+  const usageByModel: Record<string, TokenUsage> = {};
+  let anyUsage = false;
+  const recordUsage = (nodeId: string, raw: TokenUsage) => {
+    anyUsage = true;
+    const u: TokenUsage = { ...raw };
+    if (u.totalTokens == null) u.totalTokens = (u.inputTokens ?? 0) + (u.outputTokens ?? 0);
+    if (u.costUsd == null) u.costUsd = estimateCost(u.model, u.inputTokens, u.outputTokens);
+    mergeUsage((usageByNode[nodeId] ??= {}), u);
+    mergeUsage((usageByModel[`${u.provider ?? 'unknown'}/${u.model ?? 'unknown'}`] ??= {}), u);
+    emit({ type: 'node-usage', runId, nodeId, usage: u });
+  };
 
   const nodeTypeOf = (id: string) => doc.nodes.find((n) => n.id === id)?.type;
   const emitSkip = (nodeId: string, reason: string) => {
@@ -297,6 +317,10 @@ export async function run(
       log: makeLogger((level, message, data) => {
         emit({ type: 'node-log', runId, nodeId, level, message, data });
       }),
+      reportUsage: (usage: TokenUsage) => recordUsage(nodeId, usage),
+      emitChunk: (chunk: string, channel = 'out') => {
+        emit({ type: 'node-chunk', runId, nodeId, chunk, channel });
+      },
     };
 
     /* Retry loop: an executor that *throws* is retried per the node's
@@ -550,7 +574,67 @@ export async function run(
 
   emit({ type: 'run-end', runId, ok: true });
   pushAudit({ type: 'run-end', runId, ok: true });
-  return { ok: true, nodeResults, events };
+
+  const usage = anyUsage ? buildRunUsage(usageByNode, usageByModel) : undefined;
+  return { ok: true, runId, nodeResults, events, usage };
+}
+
+/**
+ * Streaming variant of {@link run}. Yields every `RunEvent` as it happens —
+ * including `node-chunk` partials from streaming LLM executors — and returns
+ * the final `RunResult` as the generator's return value.
+ *
+ * ```ts
+ * const gen = runStream(doc, registry);
+ * let next = await gen.next();
+ * while (!next.done) {
+ *   if (next.value.type === 'node-chunk') process.stdout.write(next.value.chunk);
+ *   next = await gen.next();
+ * }
+ * const result = next.value; // RunResult
+ * ```
+ *
+ * A `for await` loop also works for events; grab the result via the manual
+ * loop above when you need it. Any `onEvent` passed in options still fires.
+ */
+export async function* runStream(
+  doc: WorkflowDoc,
+  registry: ExecutorRegistry,
+  options: RunOptions = {},
+): AsyncGenerator<RunEvent, RunResult, void> {
+  const queue: RunEvent[] = [];
+  let wake: (() => void) | null = null;
+  let finished = false;
+
+  const onEvent = (e: RunEvent) => {
+    queue.push(e);
+    options.onEvent?.(e);
+    wake?.();
+  };
+
+  const resultPromise = run(doc, registry, { ...options, onEvent }).then(
+    (r) => {
+      finished = true;
+      wake?.();
+      return r;
+    },
+    (err) => {
+      finished = true;
+      wake?.();
+      throw err;
+    },
+  );
+
+  while (true) {
+    while (queue.length > 0) yield queue.shift()!;
+    if (finished) break;
+    await new Promise<void>((resolve) => {
+      wake = resolve;
+    });
+    wake = null;
+  }
+  while (queue.length > 0) yield queue.shift()!;
+  return await resultPromise;
 }
 
 /* ---------- loop planning ---------- */
@@ -837,11 +921,41 @@ function redactEvent(e: RunEvent, redact: Redactor): RunEvent {
       return { ...e, error: redact.text(e.error) };
     case 'node-skip':
       return { ...e, reason: redact.text(e.reason) };
+    case 'node-chunk':
+      return { ...e, chunk: redact.text(e.chunk) };
     case 'run-end':
       return e.error ? { ...e, error: redact.text(e.error) } : e;
     default:
       return e;
   }
+}
+
+/* ---------- usage aggregation ---------- */
+
+function mergeUsage(target: TokenUsage, u: TokenUsage): void {
+  target.inputTokens = (target.inputTokens ?? 0) + (u.inputTokens ?? 0);
+  target.outputTokens = (target.outputTokens ?? 0) + (u.outputTokens ?? 0);
+  target.totalTokens = (target.totalTokens ?? 0) + (u.totalTokens ?? 0);
+  target.costUsd = (target.costUsd ?? 0) + (u.costUsd ?? 0);
+  if (u.cacheReadTokens != null) target.cacheReadTokens = (target.cacheReadTokens ?? 0) + u.cacheReadTokens;
+  if (u.cacheWriteTokens != null) target.cacheWriteTokens = (target.cacheWriteTokens ?? 0) + u.cacheWriteTokens;
+  if (u.provider) target.provider = u.provider;
+  if (u.model) target.model = u.model;
+}
+
+function buildRunUsage(
+  byNode: Record<string, TokenUsage>,
+  byModel: Record<string, TokenUsage>,
+): RunUsage {
+  const total: RunUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0, byNode, byModel };
+  for (const u of Object.values(byNode)) {
+    total.inputTokens += u.inputTokens ?? 0;
+    total.outputTokens += u.outputTokens ?? 0;
+    total.totalTokens += u.totalTokens ?? 0;
+    total.costUsd += u.costUsd ?? 0;
+  }
+  total.costUsd = Math.round(total.costUsd * 1_000_000) / 1_000_000;
+  return total;
 }
 
 /* Convert a bare value into an `{ out: value }` map. Pass through if already shaped. */

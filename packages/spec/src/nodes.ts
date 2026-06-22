@@ -508,6 +508,14 @@ export const BUILTIN_NODES: NodeDefinition[] = [
       },
       { key: 'apiKey', type: 'secret', label: 'API key', optional: true },
       { key: 'maxTokens', type: 'number', label: 'Max tokens', default: 1024 },
+      {
+        key: 'stream',
+        type: 'boolean',
+        label: 'Stream tokens',
+        default: false,
+        optional: true,
+        help: 'Emit partial output as node-chunk events as the model generates (use with runStream()).',
+      },
     ],
   },
 
