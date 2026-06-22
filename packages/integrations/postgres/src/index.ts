@@ -202,9 +202,12 @@ function connConfig(ctx: ExecutionContext): { config: Record<string, unknown> } 
 async function getClient(
   ctx: ExecutionContext,
 ): Promise<{ client: PgClient } | { error: { message: string } }> {
-  // pg is an optional peer dependency — loaded lazily so the pack installs without it.
-  // @ts-expect-error optional dep: 'pg' may not be installed / typed in this workspace.
-  const pg: any = await import('pg').catch(() => null);
+  // pg is an optional peer dependency — loaded lazily so the pack installs
+  // without it. The /* @vite-ignore */ + indirected specifier keep browser
+  // bundlers (Vite/Rollup) from trying to resolve it at build time; this code
+  // path only ever runs under Node.
+  const pgModule = 'pg';
+  const pg: any = await import(/* @vite-ignore */ pgModule).catch(() => null);
   if (!pg) {
     return { error: { message: 'postgres: the "pg" package is not installed — run `npm i pg`' } };
   }
