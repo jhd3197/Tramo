@@ -9,6 +9,7 @@
 
 import { topoSort } from '@tramo/spec';
 import { run } from '../runner.js';
+import { verifyWebhookSignature, type SignaturePreset } from '../crypto.js';
 import type {
   ExecutorRegistry,
   RunOptions,
@@ -21,6 +22,12 @@ export interface WebhookRequest {
   url: string;
   headers: Record<string, string>;
   body: unknown;
+  /**
+   * The exact raw request body string. Required for HMAC signature
+   * verification when the matched webhook-trigger node has a signing secret;
+   * without it a signed endpoint returns 401.
+   */
+  rawBody?: string;
   query?: Record<string, string>;
 }
 
@@ -55,10 +62,13 @@ export function webhook(
     method: String(n.config.method ?? 'POST').toUpperCase(),
     path: String(n.config.path ?? '/'),
     nodeId: n.id,
+    secret: n.config.secret ? String(n.config.secret) : '',
+    preset: String(n.config.signaturePreset ?? 'github') as SignaturePreset,
+    signatureHeader: String(n.config.signatureHeader ?? 'x-signature'),
   }));
 
   return {
-    routes: () => routes,
+    routes: () => routes.map((r) => ({ method: r.method, path: r.path, nodeId: r.nodeId })),
     handle: async (req) => {
       const url = new URL(req.url, 'http://placeholder');
       const match = routes.find(
@@ -67,6 +77,27 @@ export function webhook(
       if (!match) {
         return { status: 404, body: { error: 'no matching webhook trigger' } };
       }
+
+      // HMAC verification — only when the trigger declares a signing secret.
+      if (match.secret) {
+        const raw = req.rawBody ?? (typeof req.body === 'string' ? req.body : undefined);
+        if (raw == null) {
+          return {
+            status: 401,
+            body: { ok: false, error: 'signature required but raw body unavailable' },
+            headers: { 'content-type': 'application/json' },
+          };
+        }
+        const verdict = await verifyWebhookSignature(match.preset, match.secret, raw, req.headers, match.signatureHeader);
+        if (!verdict.ok) {
+          return {
+            status: 401,
+            body: { ok: false, error: `signature verification failed: ${verdict.reason ?? 'invalid'}` },
+            headers: { 'content-type': 'application/json' },
+          };
+        }
+      }
+
       const trigger = {
         body: req.body,
         headers: req.headers,

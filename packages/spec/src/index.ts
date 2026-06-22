@@ -26,6 +26,8 @@ export {
   BUILTIN_REGISTRY,
   createRegistry,
   resolveOutputs,
+  parseRoutes,
+  type LlmRoute,
   emptySwitchCase,
   newSwitchCaseKey,
   emptyFlowParam,

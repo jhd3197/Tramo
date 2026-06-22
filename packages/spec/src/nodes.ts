@@ -117,6 +117,34 @@ export const BUILTIN_NODES: NodeDefinition[] = [
           { label: 'DELETE', value: 'DELETE' },
         ],
       },
+      {
+        key: 'secret',
+        type: 'secret',
+        label: 'Signing secret',
+        optional: true,
+        help: 'When set, the request HMAC signature is verified before the flow runs. Unsigned/invalid requests get 401.',
+      },
+      {
+        key: 'signaturePreset',
+        type: 'select',
+        label: 'Signature scheme',
+        default: 'github',
+        optional: true,
+        options: [
+          { label: 'GitHub (X-Hub-Signature-256, sha256=…)', value: 'github' },
+          { label: 'Stripe (Stripe-Signature, t=…,v1=…)', value: 'stripe' },
+          { label: 'Slack (X-Slack-Signature, v0=…)', value: 'slack' },
+          { label: 'Generic HMAC (hex digest in header)', value: 'generic' },
+        ],
+        help: 'Only used when a signing secret is set.',
+      },
+      {
+        key: 'signatureHeader',
+        type: 'text',
+        label: 'Signature header (generic only)',
+        default: 'x-signature',
+        optional: true,
+      },
     ],
   },
   {
@@ -129,7 +157,7 @@ export const BUILTIN_NODES: NodeDefinition[] = [
     inputs: [],
     outputs: [{ key: 'out', label: 'Tick', type: 'object' }],
     fields: [
-      { key: 'expression', type: 'text', label: 'Cron expression', default: '*/5 * * * *', help: 'Standard 5-field cron syntax.' },
+      { key: 'expression', type: 'text', label: 'Schedule', default: '*/5 * * * *', help: 'A 5-field cron expression or natural language — e.g. "every 30 minutes", "daily at 9am", "weekdays at 5pm".' },
       { key: 'timezone', type: 'text', label: 'Timezone', default: 'UTC', optional: true },
     ],
   },
@@ -525,7 +553,10 @@ export const BUILTIN_NODES: NodeDefinition[] = [
     description: 'Call an LLM with a prompt rendered from the input. Returns the text response.',
     icon: 'Sparkles',
     color: COLORS.ai,
-    inputs: [{ key: 'in', label: 'Context', type: 'object' }],
+    inputs: [
+      { key: 'in', label: 'Context', type: 'object' },
+      { key: 'persona', label: 'Persona', type: 'object', description: 'Optional Persona node providing system/model/provider overrides.' },
+    ],
     outputs: [{ key: 'out', label: 'Response', type: 'string' }],
     fields: [
       {
@@ -563,6 +594,100 @@ export const BUILTIN_NODES: NodeDefinition[] = [
         optional: true,
         help: 'Emit partial output as node-chunk events as the model generates (use with runStream()).',
       },
+    ],
+  },
+  {
+    id: 'persona',
+    name: 'Persona',
+    category: 'ai',
+    description: 'Reusable system prompt + model config. Wire its output into an AI node\'s Persona port to drive many nodes from one place.',
+    icon: 'UserCog',
+    color: COLORS.ai,
+    inputs: [{ key: 'in', label: 'In', type: 'any' }],
+    outputs: [{ key: 'out', label: 'Persona', type: 'object' }],
+    fields: [
+      {
+        key: 'provider',
+        type: 'select',
+        label: 'Provider',
+        default: '',
+        optional: true,
+        options: [
+          { label: '(inherit)', value: '' },
+          { label: 'Anthropic (Claude)', value: 'anthropic' },
+          { label: 'OpenAI', value: 'openai' },
+          { label: 'Mock (echo)', value: 'mock' },
+        ],
+      },
+      { key: 'model', type: 'text', label: 'Model', default: '', optional: true },
+      { key: 'system', type: 'textarea', label: 'System prompt (supports {{var}})', default: 'You are a helpful assistant.' },
+      { key: 'maxTokens', type: 'number', label: 'Max tokens', default: 1024, optional: true },
+      { key: 'temperature', type: 'number', label: 'Temperature', default: 1, optional: true },
+    ],
+  },
+  {
+    id: 'llm-switch',
+    name: 'LLM Router',
+    category: 'logic',
+    description: 'Route the input to one branch using an LLM and natural-language route descriptions. Semantic alternative to Switch.',
+    icon: 'Waypoints',
+    color: COLORS.logic,
+    inputs: [{ key: 'in', label: 'Input', type: 'any' }],
+    /* Real ports are resolved per-node from config.routes via resolveOutputs;
+     * `other` is the fallback when the model picks no route. */
+    outputs: [{ key: 'other', label: 'Other', type: 'any' }],
+    fields: [
+      {
+        key: 'provider',
+        type: 'select',
+        label: 'Provider',
+        default: 'anthropic',
+        options: [
+          { label: 'Anthropic (Claude)', value: 'anthropic' },
+          { label: 'OpenAI', value: 'openai' },
+          { label: 'Mock (keyword match)', value: 'mock' },
+        ],
+      },
+      { key: 'model', type: 'text', label: 'Model', default: 'claude-haiku-4-5', help: 'A cheap, fast model is ideal for routing.' },
+      { key: 'apiKey', type: 'secret', label: 'API key', optional: true },
+      {
+        key: 'input',
+        type: 'text',
+        label: 'Text to classify (expression)',
+        default: 'input',
+        help: 'JS expression resolving to the text to route on. Bindings: input, vars, steps.',
+      },
+      {
+        key: 'routes',
+        type: 'json',
+        label: 'Routes (JSON array)',
+        default: '[\n  { "key": "billing", "description": "Questions about invoices, charges, refunds" },\n  { "key": "support", "description": "Technical problems or how-to questions" }\n]',
+        help: 'Each route needs a "key" (port id) and a "description". Unmatched input leaves via Other.',
+      },
+    ],
+  },
+  {
+    id: 'health-check',
+    name: 'Health Check',
+    category: 'io',
+    description: 'Validate connectivity, credentials, and config with read-only checks. Routes to Healthy or Unhealthy.',
+    icon: 'Stethoscope',
+    color: COLORS.io,
+    inputs: [{ key: 'in', label: 'In', type: 'any' }],
+    outputs: [
+      { key: 'out', label: 'Report', type: 'object' },
+      { key: 'healthy', label: 'Healthy', type: 'object' },
+      { key: 'unhealthy', label: 'Unhealthy', type: 'object' },
+    ],
+    fields: [
+      {
+        key: 'checks',
+        type: 'json',
+        label: 'Checks (JSON array)',
+        default: '[\n  { "name": "API reachable", "type": "http", "url": "https://httpbin.org/status/200" },\n  { "name": "Key present", "type": "env", "var": "ANTHROPIC_API_KEY" }\n]',
+        help: 'Types: "http" (url, okBelow?), "env" (var), "expression" (expr against input/vars/steps).',
+      },
+      { key: 'timeoutMs', type: 'number', label: 'HTTP timeout (ms)', default: 5000, optional: true },
     ],
   },
 
@@ -1058,6 +1183,35 @@ export function collectSecrets(doc: WorkflowDoc, registry: NodeRegistry): string
 }
 
 /* ====================================================================== */
+/* LLM router routes — value for the `llm-switch` `routes` field             */
+/* ====================================================================== */
+
+export interface LlmRoute {
+  /** Stable port id used by edges. */
+  key: string;
+  /** Optional human label shown on the canvas. */
+  label?: string;
+  /** Natural-language description the router model uses to choose. */
+  description?: string;
+}
+
+/** Parse a `routes` config value (array or JSON string) into LlmRoutes. */
+export function parseRoutes(raw: unknown): LlmRoute[] {
+  let val: unknown = raw;
+  if (typeof raw === 'string') {
+    try {
+      val = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(val)) return [];
+  return val.filter(
+    (r): r is LlmRoute => !!r && typeof r === 'object' && typeof (r as { key?: unknown }).key === 'string',
+  );
+}
+
+/* ====================================================================== */
 /* Output resolution                                                        */
 /* ====================================================================== */
 
@@ -1088,6 +1242,19 @@ export function resolveOutputs(
       out.push({ key, label: c.label || key, type: 'any' });
     }
     out.push({ key: 'default', label: 'Default', type: 'any' });
+    return out;
+  }
+  if (def.id === 'llm-switch') {
+    const routes = parseRoutes(node?.config?.routes);
+    const seen = new Set<string>();
+    const out: NodePort[] = [];
+    for (const r of routes) {
+      const key = String(r?.key ?? '').trim();
+      if (!key || seen.has(key) || key === 'other') continue;
+      seen.add(key);
+      out.push({ key, label: r.label || key, type: 'any' });
+    }
+    out.push({ key: 'other', label: 'Other', type: 'any' });
     return out;
   }
   return def.outputs;

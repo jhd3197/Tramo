@@ -5,4 +5,4 @@ export {
   type WebhookRequest,
   type WebhookResponse,
 } from './webhook.js';
-export { cron, matches as cronMatches, type CronTriggerHandle } from './cron.js';
+export { cron, matches as cronMatches, toCron, type CronTriggerHandle } from './cron.js';

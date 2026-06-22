@@ -7,7 +7,7 @@
  * Node-only deps.
  */
 
-import { evaluateRuleGroup, isRuleGroup, type SwitchCase } from '@tramo/spec';
+import { evaluateRuleGroup, isRuleGroup, parseRoutes, type SwitchCase } from '@tramo/spec';
 import type {
   ExecutionContext,
   ExecutorRegistry,
@@ -689,14 +689,19 @@ const callFlow: NodeExecutor = {
 const aiPrompt: NodeExecutor = {
   id: 'ai-prompt',
   execute: async (ctx) => {
-    const provider = String(ctx.config.provider ?? 'mock');
+    // A wired Persona node overrides provider/model/system/maxTokens.
+    const persona = (ctx.inputs.persona && typeof ctx.inputs.persona === 'object'
+      ? (ctx.inputs.persona as Record<string, unknown>)
+      : {});
+    const provider = String(persona.provider || ctx.config.provider || 'mock');
     const promptTpl = String(ctx.config.prompt ?? '');
     const prompt = renderTemplate(promptTpl, ctx.inputs.in, ctx.vars, ctx.steps);
-    const system = ctx.config.system
-      ? renderTemplate(String(ctx.config.system), ctx.inputs.in, ctx.vars, ctx.steps)
+    const systemRaw = persona.system ?? ctx.config.system;
+    const system = systemRaw
+      ? renderTemplate(String(systemRaw), ctx.inputs.in, ctx.vars, ctx.steps)
       : undefined;
-    const model = String(ctx.config.model ?? 'claude-opus-4-7');
-    const maxTokens = Number(ctx.config.maxTokens ?? 1024);
+    const model = String(persona.model || ctx.config.model || 'claude-opus-4-7');
+    const maxTokens = Number(persona.maxTokens ?? ctx.config.maxTokens ?? 1024);
     const apiKey = ctx.config.apiKey ? String(ctx.config.apiKey) : undefined;
     const stream = ctx.config.stream === true || ctx.config.stream === 'true';
     const onChunk = stream ? (t: string) => ctx.emitChunk(t) : undefined;
@@ -721,6 +726,143 @@ const aiPrompt: NodeExecutor = {
     throw new Error(`Unknown AI provider: ${provider}`);
   },
 };
+
+const persona: NodeExecutor = {
+  id: 'persona',
+  execute: (ctx) => {
+    const out: Record<string, unknown> = {};
+    const provider = String(ctx.config.provider ?? '').trim();
+    const model = String(ctx.config.model ?? '').trim();
+    if (provider) out.provider = provider;
+    if (model) out.model = model;
+    if (ctx.config.system != null && ctx.config.system !== '') {
+      out.system = renderTemplate(String(ctx.config.system), ctx.inputs.in, ctx.vars, ctx.steps);
+    }
+    if (ctx.config.maxTokens != null && ctx.config.maxTokens !== '') out.maxTokens = Number(ctx.config.maxTokens);
+    if (ctx.config.temperature != null && ctx.config.temperature !== '') out.temperature = Number(ctx.config.temperature);
+    return { out };
+  },
+};
+
+const llmSwitch: NodeExecutor = {
+  id: 'llm-switch',
+  execute: async (ctx) => {
+    const routes = parseRoutes(ctx.config.routes);
+    if (routes.length === 0) {
+      ctx.log.warn('llm-switch: no routes configured → other');
+      return { other: ctx.inputs.in };
+    }
+    // Resolve the text to classify.
+    const inputExpr = String(ctx.config.input ?? 'input').trim() || 'input';
+    let value: unknown;
+    try {
+      const fn = new Function('input', 'vars', 'steps', `return (${inputExpr});`) as (
+        i: unknown, v: Record<string, unknown>, s: Record<string, unknown>,
+      ) => unknown;
+      value = fn(ctx.inputs.in, ctx.vars, ctx.steps);
+    } catch (err) {
+      return { other: ctx.inputs.in, error: { message: `llm-switch: input expression failed: ${(err as Error).message}` } };
+    }
+    const text = typeof value === 'string' ? value : JSON.stringify(value);
+
+    const provider = String(ctx.config.provider ?? 'anthropic');
+    const model = String(ctx.config.model ?? 'claude-haiku-4-5');
+    const apiKey = ctx.config.apiKey ? String(ctx.config.apiKey) : undefined;
+
+    let choice: string;
+    if (provider === 'mock') {
+      choice = mockRoute(text, routes);
+    } else {
+      const list = routes.map((r) => `- ${r.key}: ${r.description ?? r.label ?? r.key}`).join('\n');
+      const system = `You are a routing classifier. Choose exactly one route key for the input. Reply with ONLY the key, lowercase, no punctuation.\nRoutes:\n${list}\n- other: none of the above`;
+      const call = provider === 'openai' ? callOpenAI : callAnthropic;
+      const r = await call({ apiKey, model, system, prompt: text, maxTokens: 16, signal: ctx.signal });
+      ctx.reportUsage({ provider, model, ...r.usage });
+      choice = r.text.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    }
+
+    const match =
+      routes.find((r) => r.key.toLowerCase() === choice) ??
+      routes.find((r) => choice.includes(r.key.toLowerCase()));
+    if (match) {
+      ctx.log.info(`llm-switch → ${match.key}`);
+      return { [match.key]: ctx.inputs.in };
+    }
+    ctx.log.info('llm-switch → other');
+    return { other: ctx.inputs.in };
+  },
+};
+
+const healthCheck: NodeExecutor = {
+  id: 'health-check',
+  execute: async (ctx) => {
+    const raw = parseMaybeJson(ctx.config.checks);
+    const checks = Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
+    const timeoutMs = Number(ctx.config.timeoutMs ?? 5000);
+    const results: Array<{ name: string; ok: boolean; detail?: string }> = [];
+
+    for (const c of checks) {
+      const name = String(c.name ?? c.type ?? 'check');
+      const type = String(c.type ?? '').toLowerCase();
+      try {
+        if (type === 'http') {
+          const url = String(c.url ?? '');
+          if (!url) throw new Error('missing url');
+          const okBelow = Number(c.okBelow ?? 500);
+          const res = await fetch(url, {
+            method: String(c.method ?? 'GET'),
+            signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(timeoutMs)]),
+          });
+          results.push({ name, ok: res.status < okBelow, detail: `HTTP ${res.status}` });
+        } else if (type === 'env') {
+          const key = String(c.var ?? '');
+          const present = typeof process !== 'undefined' && !!process.env?.[key];
+          results.push({ name, ok: present, detail: present ? 'set' : 'missing' });
+        } else if (type === 'expression') {
+          const expr = String(c.expr ?? c.expression ?? 'true');
+          const fn = new Function('input', 'vars', 'steps', `return (${expr});`) as (
+            i: unknown, v: Record<string, unknown>, s: Record<string, unknown>,
+          ) => unknown;
+          const ok = Boolean(fn(ctx.inputs.in, ctx.vars, ctx.steps));
+          results.push({ name, ok, detail: ok ? 'truthy' : 'falsy' });
+        } else {
+          results.push({ name, ok: false, detail: `unknown check type "${type}"` });
+        }
+      } catch (err) {
+        results.push({ name, ok: false, detail: (err as Error).message });
+      }
+    }
+
+    const allOk = results.length > 0 && results.every((r) => r.ok);
+    const report = { ok: allOk, checks: results, checkedAt: new Date().toISOString() };
+    ctx.log[allOk ? 'info' : 'warn'](`health-check: ${results.filter((r) => r.ok).length}/${results.length} ok`);
+    return allOk ? { out: report, healthy: report } : { out: report, unhealthy: report };
+  },
+};
+
+/** Mock router heuristic: pick the route whose key/label/description words
+ *  appear in the text; fall back to 'other'. Keeps the mock provider useful
+ *  and deterministic for tests. */
+function mockRoute(text: string, routes: Array<{ key: string; label?: string; description?: string }>): string {
+  const tokens = text.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2);
+  const stem = (w: string) => w.slice(0, Math.min(w.length, 5));
+  const textStems = new Set(tokens.map(stem));
+  let best = 'other';
+  let bestScore = 0;
+  for (const r of routes) {
+    const words = `${r.key} ${r.label ?? ''} ${r.description ?? ''}`
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w.length > 2);
+    // Score by shared 5-char stem — matches invoice/invoices, refund/refunds.
+    const score = words.reduce((s, w) => s + (textStems.has(stem(w)) ? 1 : 0), 0);
+    if (score > bestScore) {
+      bestScore = score;
+      best = r.key;
+    }
+  }
+  return best;
+}
 
 /* ====================================================================== */
 /* exports                                                                  */
@@ -1057,6 +1199,9 @@ export const BUILTIN_EXECUTORS: NodeExecutor[] = [
   flowOutput,
   callFlow,
   aiPrompt,
+  persona,
+  llmSwitch,
+  healthCheck,
   verifySignature,
   csvParseNode,
   csvStringifyNode,

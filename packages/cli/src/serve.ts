@@ -62,6 +62,7 @@ export async function serveCommand(opts: ServeOptions): Promise<number> {
         url: req.url ?? '/',
         headers: flattenHeaders(req.headers),
         body: parseRequestBody(req.headers['content-type'] ?? '', body),
+        rawBody: body,
       };
       const wres = await handle.handle(wreq);
       writeResponse(res, wres);

@@ -35,6 +35,13 @@ export {
   type AuditType,
 } from './audit.js';
 export { createRedactor, redactValue, type Redactor } from './redact.js';
+export {
+  hmacHex,
+  safeEqual,
+  verifyWebhookSignature,
+  type SignaturePreset,
+  type VerifyResult,
+} from './crypto.js';
 export { ApprovalRequiredError, isApprovalRequired } from './approval.js';
 export type { ApprovalRequest, ApprovalDecision } from './types.js';
 export {
