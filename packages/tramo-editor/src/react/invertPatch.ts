@@ -58,6 +58,9 @@ export function invertPatch(prevDoc: WorkflowDoc, patch: Patch): Patch[] {
       };
       if ('label' in patch.patch) inverse.patch.label = node.label;
       if ('runAfter' in patch.patch) inverse.patch.runAfter = node.runAfter;
+      if ('retry' in patch.patch) inverse.patch.retry = node.retry;
+      if ('sensitive' in patch.patch) inverse.patch.sensitive = node.sensitive;
+      if ('requiredRole' in patch.patch) inverse.patch.requiredRole = node.requiredRole;
       return [inverse];
     }
 

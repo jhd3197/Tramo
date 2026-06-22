@@ -1,4 +1,6 @@
 import type { WorkflowDoc, WorkflowNode } from '@tramo/spec';
+import type { Logger } from './logging.js';
+import type { AuditSink } from './audit.js';
 
 /* ====================================================================== */
 /* Executor surface                                                         */
@@ -100,14 +102,72 @@ export interface RunOptions {
   signal?: AbortSignal;
   /** Per-node log/status callback. */
   onEvent?: (event: RunEvent) => void;
-  /** Overall logger (parallel to onEvent). */
-  logger?: Pick<Console, 'debug' | 'info' | 'warn' | 'error'>;
+  /**
+   * Overall logger (parallel to onEvent). `console` satisfies this, as does
+   * any structured `Logger` built via `createLogger` / `createJsonLogger`.
+   */
+  logger?: Logger;
   /**
    * Catalog of sub-flows the `call-flow` node can invoke, keyed by id.
    * Hosts that want sub-flow support pass every callable workflow in
    * here; the runner threads them through to ExecutionContext.
    */
   workflows?: Record<string, WorkflowDoc>;
+  /**
+   * Maximum number of nodes to execute concurrently within a topological
+   * layer. Independent branches at the same depth run in parallel up to this
+   * cap. `1` forces the legacy fully-sequential behaviour. Defaults to
+   * `Infinity` (run an entire ready-layer at once).
+   */
+  concurrency?: number;
+  /**
+   * Immutable audit sink. Receives a record for every node lifecycle
+   * transition with redacted inputs/outputs. See `jsonlAuditSink`.
+   */
+  audit?: AuditSink;
+  /** Who triggered this run — stamped onto audit records. */
+  actor?: string;
+  /**
+   * Secret values to scrub from logs, events, and the audit trail. Pass the
+   * result of `collectSecrets(doc, nodeRegistry)` plus any host secrets.
+   */
+  secrets?: string[];
+  /**
+   * Redact secrets and common token patterns from observability surfaces.
+   * Defaults to `true`. The live `nodeResults` data flow is never altered.
+   */
+  redact?: boolean;
+  /**
+   * Roles the current actor holds. A node with `requiredRole` set is skipped
+   * (with a clear reason) unless its role is present here. Undefined disables
+   * role checks entirely (everything runs).
+   */
+  roles?: string[];
+  /**
+   * Resume a previously-checkpointed run. Supplied by the persistence layer
+   * (`@tramo/runtime` checkpoint store); pre-seeds completed node results so
+   * the scheduler skips finished work. See `runner` resume support.
+   */
+  resumeFrom?: ResumeState;
+  /** Persist progress after each node so a crashed run can resume. */
+  checkpoint?: (state: ResumeState) => void | Promise<void>;
+}
+
+/**
+ * Snapshot of a partially-completed run, enough to resume it. `nodeResults`
+ * are the outputs of every node that finished before the checkpoint; the
+ * scheduler replays them instead of re-executing.
+ */
+export interface ResumeState {
+  runId: string;
+  /** Completed node outputs, keyed by node id. */
+  nodeResults: Record<string, NodeExecutionResult>;
+  /** Node ids that errored. */
+  errored: string[];
+  /** Node ids that were skipped, with their reason. */
+  skipped: Record<string, string>;
+  /** Workflow variables captured at checkpoint time. */
+  vars: Record<string, unknown>;
 }
 
 export interface RunResult {

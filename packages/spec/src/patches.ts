@@ -180,6 +180,9 @@ function cloneNode(n: WorkflowNode): WorkflowNode {
     config: { ...n.config },
     ...(n.label !== undefined ? { label: n.label } : {}),
     ...(n.runAfter !== undefined ? { runAfter: n.runAfter } : {}),
+    ...(n.retry !== undefined ? { retry: { ...n.retry } } : {}),
+    ...(n.sensitive !== undefined ? { sensitive: n.sensitive } : {}),
+    ...(n.requiredRole !== undefined ? { requiredRole: n.requiredRole } : {}),
   };
 }
 

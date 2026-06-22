@@ -22,16 +22,19 @@
  */
 
 import { topoSort, getIncomingEdges, getOutgoingEdges, SPEC_VERSION, buildStepSlugMap } from '@tramo/spec';
-import type { WorkflowNode } from '@tramo/spec';
+import type { RetryPolicy, WorkflowNode } from '@tramo/spec';
 import type {
   ExecutionContext,
   ExecutorRegistry,
   NodeExecutionResult,
+  ResumeState,
   RunEvent,
   RunOptions,
   RunResult,
   WorkflowDoc,
 } from './types.js';
+import { createRedactor, type Redactor } from './redact.js';
+import type { AuditRecord } from './audit.js';
 
 interface LoopPlan {
   startId: string;
@@ -48,15 +51,38 @@ export async function run(
   registry: ExecutorRegistry,
   options: RunOptions = {},
 ): Promise<RunResult> {
+  const redactEnabled = options.redact !== false;
+  const redactor: Redactor = createRedactor(
+    redactEnabled ? options.secrets ?? [] : [],
+    { patterns: redactEnabled },
+  );
+  const auditSink = options.audit;
+  const actor = options.actor;
+
   const events: RunEvent[] = [];
   const emit = (e: RunEvent) => {
-    events.push(e);
-    options.onEvent?.(e);
+    const out = redactEnabled ? redactEvent(e, redactor) : e;
+    events.push(out);
+    options.onEvent?.(out);
   };
 
-  const runId = `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  const pushAudit = (record: Omit<AuditRecord, 'timestamp' | 'actor'>) => {
+    if (!auditSink) return;
+    auditSink({
+      ...record,
+      actor,
+      timestamp: new Date().toISOString(),
+      inputs: record.inputs ? (redactor(record.inputs) as Record<string, unknown>) : undefined,
+      output: record.output != null ? (redactor(record.output) as NodeExecutionResult) : record.output,
+    });
+  };
+
+  const runId =
+    options.resumeFrom?.runId ??
+    `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   const signal = options.signal ?? new AbortController().signal;
-  const vars: Record<string, unknown> = {};
+  const vars: Record<string, unknown> = options.resumeFrom ? { ...options.resumeFrom.vars } : {};
+  const concurrency = Math.max(1, options.concurrency ?? Number.POSITIVE_INFINITY);
 
   /* Per-run `steps` map exposed to templates/JS so any node can read any
    * already-completed upstream's value. Keyed by both id and slug; values
@@ -100,6 +126,7 @@ export async function run(
   const loopEndIds = planResult.endIds;
 
   emit({ type: 'run-start', runId, nodeOrder: topo.order });
+  pushAudit({ type: 'run-start', runId });
 
   /* 2. precompute incoming-edges map (cheap and reused) */
   const incoming = new Map<string, ReturnType<typeof getIncomingEdges>>();
@@ -109,7 +136,33 @@ export async function run(
   const nodeResults: Record<string, NodeExecutionResult> = {};
   const erroredNodes = new Set<string>();
   const skippedReason = new Map<string, string>();
-  const visited = new Set<string>();
+
+  /* 3a. resume — replay a checkpointed run's completed work so the
+   *     scheduler treats those nodes as already done. */
+  if (options.resumeFrom) {
+    const r = options.resumeFrom;
+    for (const [id, result] of Object.entries(r.nodeResults)) {
+      nodeResults[id] = result;
+      recordStep(id, result);
+    }
+    for (const id of r.errored) erroredNodes.add(id);
+    for (const [id, reason] of Object.entries(r.skipped)) skippedReason.set(id, reason);
+  }
+
+  const snapshot = (): ResumeState => ({
+    runId,
+    nodeResults: { ...nodeResults },
+    errored: Array.from(erroredNodes),
+    skipped: Object.fromEntries(skippedReason),
+    vars: { ...vars },
+  });
+
+  const nodeTypeOf = (id: string) => doc.nodes.find((n) => n.id === id)?.type;
+  const emitSkip = (nodeId: string, reason: string) => {
+    emit({ type: 'node-skip', runId, nodeId, reason });
+    skippedReason.set(nodeId, reason);
+    pushAudit({ type: 'node-skip', runId, nodeId, nodeType: nodeTypeOf(nodeId), reason });
+  };
 
   /** Run one node. Returns true if it produced a result (success), false if
    *  it was skipped or errored. Mutates nodeResults / erroredNodes /
@@ -126,8 +179,15 @@ export async function run(
     const executor = registry.get(node.type);
     if (!executor) {
       const reason = `No executor registered for type "${node.type}"`;
-      emit({ type: 'node-skip', runId, nodeId, reason });
-      skippedReason.set(nodeId, reason);
+      emitSkip(nodeId, reason);
+      return false;
+    }
+
+    /* Role gate: when the host supplies `roles`, a node tagged with a
+     * `requiredRole` the actor lacks is skipped (not errored) so fallback
+     * branches downstream can still run. Undefined roles = no gate. */
+    if (options.roles && node.requiredRole && !options.roles.includes(node.requiredRole)) {
+      emitSkip(nodeId, `missing required role "${node.requiredRole}" (have: ${options.roles.join(', ') || 'none'})`);
       return false;
     }
 
@@ -211,6 +271,7 @@ export async function run(
     }
 
     emit({ type: 'node-start', runId, nodeId });
+    pushAudit({ type: 'node-start', runId, nodeId, nodeType: node.type, inputs });
     const startMs = Date.now();
 
     const ctx: ExecutionContext = {
@@ -227,33 +288,58 @@ export async function run(
           trigger: subInput,
           signal,
           workflows: options.workflows,
+          secrets: options.secrets,
+          redact: options.redact,
+          roles: options.roles,
+          actor: options.actor,
+          logger: options.logger,
         }),
       log: makeLogger((level, message, data) => {
         emit({ type: 'node-log', runId, nodeId, level, message, data });
       }),
     };
 
-    try {
-      const result = await Promise.resolve(executor.execute(ctx));
-      const normalized = normalizeResult(result);
-      nodeResults[nodeId] = normalized;
-      recordStep(nodeId, normalized);
-      emit({
-        type: 'node-success',
-        runId,
-        nodeId,
-        output: normalized,
-        durationMs: Date.now() - startMs,
-      });
-      return true;
-    } catch (err) {
-      const message = (err as Error).message || String(err);
-      emit({ type: 'node-error', runId, nodeId, error: message, durationMs: Date.now() - startMs });
-      skippedReason.set(nodeId, `error: ${message}`);
-      erroredNodes.add(nodeId);
-      options.logger?.error(`[tramo] node ${nodeId} threw: ${message}`);
-      return false;
+    /* Retry loop: an executor that *throws* is retried per the node's
+     * RetryPolicy. Executors that return an `{ error }` envelope are treated
+     * as a normal success by the scheduler and are never retried. */
+    const retry = node.retry;
+    const maxAttempts = 1 + Math.max(0, Math.floor(retry?.count ?? 0));
+    let lastMessage = '';
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const result = await Promise.resolve(executor.execute(ctx));
+        const normalized = normalizeResult(result);
+        nodeResults[nodeId] = normalized;
+        recordStep(nodeId, normalized);
+        const durationMs = Date.now() - startMs;
+        emit({ type: 'node-success', runId, nodeId, output: normalized, durationMs });
+        pushAudit({ type: 'node-success', runId, nodeId, nodeType: node.type, inputs, output: normalized, durationMs, attempt });
+        return true;
+      } catch (err) {
+        lastMessage = (err as Error).message || String(err);
+        const willRetry = attempt < maxAttempts && !signal.aborted;
+        if (willRetry) {
+          const delayMs = computeBackoff(retry!, attempt);
+          emit({ type: 'node-log', runId, nodeId, level: 'warn', message: `attempt ${attempt}/${maxAttempts} failed: ${lastMessage} — retrying in ${delayMs}ms` });
+          try {
+            await sleep(delayMs, signal);
+          } catch {
+            break; // aborted during backoff
+          }
+          if (!signal.aborted) continue;
+          break;
+        }
+        break;
+      }
     }
+
+    const durationMs = Date.now() - startMs;
+    emit({ type: 'node-error', runId, nodeId, error: lastMessage, durationMs });
+    pushAudit({ type: 'node-error', runId, nodeId, nodeType: node.type, inputs, error: lastMessage, durationMs });
+    skippedReason.set(nodeId, `error: ${lastMessage}`);
+    erroredNodes.add(nodeId);
+    options.logger?.error(`[tramo] node ${nodeId} failed after ${maxAttempts} attempt(s): ${lastMessage}`);
+    return false;
   };
 
   /** Dispatch: loop-starts go through runLoop, everything else through
@@ -289,6 +375,7 @@ export async function run(
     } catch (err) {
       const msg = `loop-start ${plan.loopId}: source expression failed: ${(err as Error).message}`;
       emit({ type: 'node-error', runId, nodeId: plan.startId, error: msg, durationMs: 0 });
+      pushAudit({ type: 'node-error', runId, nodeId: plan.startId, nodeType: 'loop-start', error: msg });
       erroredNodes.add(plan.startId);
       skippedReason.set(plan.startId, `error: ${msg}`);
       skippedReason.set(plan.endId, `paired loop-start errored`);
@@ -298,6 +385,7 @@ export async function run(
     if (!Array.isArray(items)) {
       const msg = `loop-start ${plan.loopId}: source did not resolve to an array (got ${typeof items}).`;
       emit({ type: 'node-error', runId, nodeId: plan.startId, error: msg, durationMs: 0 });
+      pushAudit({ type: 'node-error', runId, nodeId: plan.startId, nodeType: 'loop-start', error: msg });
       erroredNodes.add(plan.startId);
       skippedReason.set(plan.startId, `error: ${msg}`);
       skippedReason.set(plan.endId, `paired loop-start errored`);
@@ -306,6 +394,7 @@ export async function run(
     }
 
     emit({ type: 'node-start', runId, nodeId: plan.startId });
+    pushAudit({ type: 'node-start', runId, nodeId: plan.startId, nodeType: 'loop-start' });
     emit({
       type: 'node-log',
       runId,
@@ -359,13 +448,9 @@ export async function run(
       });
     }
 
-    emit({
-      type: 'node-success',
-      runId,
-      nodeId: plan.startId,
-      output: { out: items[items.length - 1], index: items.length - 1 },
-      durationMs: 0,
-    });
+    const startOut = { out: items[items.length - 1], index: items.length - 1 };
+    emit({ type: 'node-success', runId, nodeId: plan.startId, output: startOut, durationMs: 0 });
+    pushAudit({ type: 'node-success', runId, nodeId: plan.startId, nodeType: 'loop-start', output: startOut });
 
     // Synthesize the loop-end's result so anything downstream consumes the
     // collected/final value without needing a dedicated executor.
@@ -374,53 +459,97 @@ export async function run(
     nodeResults[plan.endId] = endOutput;
     recordStep(plan.endId, endOutput);
     emit({ type: 'node-success', runId, nodeId: plan.endId, output: endOutput, durationMs: 0 });
-
-    // Mark everything inside the loop as visited so the outer iteration
-    // doesn't try to run them again.
-    visited.add(plan.startId);
-    visited.add(plan.endId);
-    for (const b of plan.body) visited.add(b);
+    pushAudit({ type: 'node-success', runId, nodeId: plan.endId, nodeType: 'loop-end', output: endOutput });
     void startNode;
   };
 
-  for (const nodeId of topo.order) {
-    if (visited.has(nodeId)) continue;
-    if (signal.aborted) {
-      emit({ type: 'node-skip', runId, nodeId, reason: 'run aborted' });
-      skippedReason.set(nodeId, 'run aborted');
-      continue;
-    }
+  /* ---------------------------------------------------------------------- */
+  /* Scheduler — layered parallel execution (Kahn's ready-set).             */
+  /*                                                                        */
+  /* Top-level units are every node except those owned by a loop (its body  */
+  /* and loop-end), which the loop-start's runLoop drives internally. A     */
+  /* unit is ready when all of its external dependencies have resolved. The */
+  /* whole ready layer is dispatched concurrently (bounded by              */
+  /* options.concurrency); `concurrency: 1` reproduces the old sequential  */
+  /* topo walk exactly.                                                     */
+  /* ---------------------------------------------------------------------- */
 
-    const plan = loopPlansByStart.get(nodeId);
+  const orderIndex = new Map(topo.order.map((id, i) => [id, i]));
+
+  // Per-loop interior (start ∪ body-closure ∪ end) and the external nodes
+  // each loop depends on (edges entering the interior from outside it).
+  const loopInterior = new Map<string, Set<string>>();
+  const externalDeps = new Map<string, string[]>();
+  const topLevel = topo.order.filter((id) => !loopBodyIds.has(id) && !loopEndIds.has(id));
+
+  for (const id of topLevel) {
+    const plan = loopPlansByStart.get(id);
     if (plan) {
-      await runLoop(plan);
-      continue;
+      const interior = new Set<string>([plan.startId, plan.endId]);
+      const desc = descendantsOf(doc, plan.startId);
+      const anc = ancestorsOf(doc, plan.endId);
+      for (const n of desc) if (anc.has(n)) interior.add(n);
+      loopInterior.set(id, interior);
+      const deps = new Set<string>();
+      for (const n of interior) {
+        for (const e of incoming.get(n) ?? []) {
+          if (!interior.has(e.source)) deps.add(e.source);
+        }
+      }
+      externalDeps.set(id, Array.from(deps));
+    } else {
+      externalDeps.set(id, (incoming.get(id) ?? []).map((e) => e.source));
+    }
+  }
+
+  const resolved = new Set<string>();
+  if (options.resumeFrom) {
+    for (const id of Object.keys(options.resumeFrom.nodeResults)) resolved.add(id);
+    for (const id of options.resumeFrom.errored) resolved.add(id);
+    for (const id of Object.keys(options.resumeFrom.skipped)) resolved.add(id);
+  }
+  const pending = new Set(topLevel.filter((id) => !resolved.has(id)));
+
+  while (pending.size > 0) {
+    if (signal.aborted) {
+      for (const id of topo.order) {
+        if (!pending.has(id)) continue;
+        emitSkip(id, 'run aborted');
+        pending.delete(id);
+        resolved.add(id);
+      }
+      break;
     }
 
-    // A loop-end reached outside its planned run is an orphan that the
-    // pre-pass should have flagged. Defensive skip just in case.
-    if (loopEndIds.has(nodeId)) {
-      const reason = 'orphan loop-end (no matching loop-start in plan)';
-      emit({ type: 'node-skip', runId, nodeId, reason });
-      skippedReason.set(nodeId, reason);
-      visited.add(nodeId);
-      continue;
-    }
-    // Body nodes shouldn't appear outside the loop; if they do, the body
-    // membership set will have caught them in planning. Belt-and-braces:
-    if (loopBodyIds.has(nodeId)) {
-      const reason = 'loop body node fell through outside its loop';
-      emit({ type: 'node-skip', runId, nodeId, reason });
-      skippedReason.set(nodeId, reason);
-      visited.add(nodeId);
-      continue;
+    const ready = Array.from(pending)
+      .filter((id) => (externalDeps.get(id) ?? []).every((src) => resolved.has(src)))
+      .sort((a, b) => (orderIndex.get(a) ?? 0) - (orderIndex.get(b) ?? 0));
+
+    if (ready.length === 0) {
+      // No node can make progress — remaining pending have dependencies that
+      // will never resolve (defensive; topo sort should prevent this).
+      for (const id of Array.from(pending).sort((a, b) => (orderIndex.get(a) ?? 0) - (orderIndex.get(b) ?? 0))) {
+        emitSkip(id, 'dependencies never resolved');
+        resolved.add(id);
+      }
+      pending.clear();
+      break;
     }
 
-    await executeNode(nodeId);
-    visited.add(nodeId);
+    await runPool(ready, concurrency, runOne);
+
+    for (const id of ready) {
+      pending.delete(id);
+      resolved.add(id);
+      const interior = loopInterior.get(id);
+      if (interior) for (const n of interior) resolved.add(n);
+    }
+
+    if (options.checkpoint) await options.checkpoint(snapshot());
   }
 
   emit({ type: 'run-end', runId, ok: true });
+  pushAudit({ type: 'run-end', runId, ok: true });
   return { ok: true, nodeResults, events };
 }
 
@@ -638,6 +767,81 @@ function readEndIncomingValue(
     if (fromPort === 'out') return upstream;
   }
   return undefined;
+}
+
+/* ---------- scheduling + reliability helpers ---------- */
+
+/** Compute the backoff wait (ms) before retry `attempt` (1-based: 1 = first
+ *  retry) for a RetryPolicy. */
+function computeBackoff(retry: RetryPolicy, attempt: number): number {
+  const base = Math.max(0, retry.delayMs ?? 0);
+  let d = base;
+  if (retry.backoff === 'linear') d = base * attempt;
+  else if (retry.backoff === 'exponential') d = base * 2 ** (attempt - 1);
+  if (retry.maxDelayMs != null) d = Math.min(d, Math.max(0, retry.maxDelayMs));
+  if (retry.jitter) d = d * (0.5 + Math.random()); // ±50%
+  return Math.max(0, Math.round(d));
+}
+
+/** Promise sleep that rejects if the signal aborts (so backoff is cancellable). */
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(new Error('aborted'));
+    if (ms <= 0) return resolve();
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new Error('aborted'));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/** Run `worker` over `items` with at most `limit` concurrent calls. `limit`
+ *  ≤ 1 runs strictly sequentially in the given order. Never rejects — a
+ *  worker's own error handling is its responsibility (executeNode swallows). */
+async function runPool<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
+  if (!Number.isFinite(limit) || limit >= items.length) {
+    if (limit <= 1) {
+      for (const item of items) await worker(item);
+      return;
+    }
+    await Promise.all(items.map((item) => worker(item)));
+    return;
+  }
+  if (limit <= 1) {
+    for (const item of items) await worker(item);
+    return;
+  }
+  let cursor = 0;
+  const lane = async () => {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      await worker(items[idx]!);
+    }
+  };
+  await Promise.all(Array.from({ length: limit }, lane));
+}
+
+/** Redact observability payloads on an event without touching nodeResults. */
+function redactEvent(e: RunEvent, redact: Redactor): RunEvent {
+  switch (e.type) {
+    case 'node-log':
+      return { ...e, message: redact.text(e.message), data: e.data === undefined ? undefined : redact(e.data) };
+    case 'node-success':
+      return { ...e, output: redact(e.output) as NodeExecutionResult };
+    case 'node-error':
+      return { ...e, error: redact.text(e.error) };
+    case 'node-skip':
+      return { ...e, reason: redact.text(e.reason) };
+    case 'run-end':
+      return e.error ? { ...e, error: redact.text(e.error) } : e;
+    default:
+      return e;
+  }
 }
 
 /* Convert a bare value into an `{ out: value }` map. Pass through if already shaped. */

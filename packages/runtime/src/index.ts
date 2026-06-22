@@ -6,10 +6,27 @@ export type {
   NodeExecutor,
   NodeLogger,
   NodeStatus,
+  ResumeState,
   RunEvent,
   RunOptions,
   RunResult,
 } from './types.js';
+export {
+  createLogger,
+  createJsonLogger,
+  silentLogger,
+  type Logger,
+  type LogLevel,
+  type LogRecord,
+} from './logging.js';
+export {
+  jsonlAuditSink,
+  arrayAuditSink,
+  type AuditRecord,
+  type AuditSink,
+  type AuditType,
+} from './audit.js';
+export { createRedactor, redactValue, type Redactor } from './redact.js';
 export {
   BUILTIN_EXECUTORS,
   BUILTIN_EXECUTOR_REGISTRY,

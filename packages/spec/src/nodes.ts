@@ -17,6 +17,7 @@ import type {
   NodeDefinition,
   NodePort,
   SwitchCase,
+  WorkflowDoc,
   WorkflowNode,
 } from './types.js';
 import { emptyRuleGroup } from './rules.js';
@@ -973,6 +974,33 @@ export const BUILTIN_NODES: NodeDefinition[] = [
    * combinePacks([BUILTIN_PACK, GMAIL, …]) — see @tramo/runtime/src/pack.ts.
    */
 ];
+
+/* ====================================================================== */
+/* Secret collection — gather every `secret`-typed field value in a doc      */
+/* ====================================================================== */
+
+/**
+ * Walk a document and collect the concrete values of every field declared
+ * as `type: 'secret'` in its node's definition. The runtime feeds the
+ * returned list to its redactor so API keys and tokens are scrubbed from
+ * logs, events, and the audit trail.
+ *
+ * Only non-empty strings of length ≥ 4 are returned — short values would
+ * cause over-eager redaction of unrelated text.
+ */
+export function collectSecrets(doc: WorkflowDoc, registry: NodeRegistry): string[] {
+  const out = new Set<string>();
+  for (const node of doc.nodes) {
+    const def = registry.get(node.type);
+    if (!def) continue;
+    for (const field of def.fields) {
+      if (field.type !== 'secret') continue;
+      const value = node.config?.[field.key];
+      if (typeof value === 'string' && value.trim().length >= 4) out.add(value);
+    }
+  }
+  return Array.from(out);
+}
 
 /* ====================================================================== */
 /* Output resolution                                                        */

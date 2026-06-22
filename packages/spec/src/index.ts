@@ -32,6 +32,7 @@ export {
   mcpServerToIntegration,
   mcpServerToNodeDefs,
   withMcpServers,
+  collectSecrets,
   MCP_NODE_ID_PREFIX,
   type NodeRegistry,
 } from './nodes.js';
