@@ -133,8 +133,8 @@
     "dev": "tsc -p tsconfig.json --watch"
   },
   "dependencies": {
-    "tramo-spec": "0.1.0",
-    "tramo-runtime": "0.1.0",
+    "@tramo/spec": "0.1.0",
+    "@tramo/runtime": "0.1.0",
     "@tramo/editor": "0.1.0",
     "@tramo/gmail": "0.1.0",
     "@tramo/github": "0.1.0",
@@ -168,8 +168,7 @@
     "embeddable",
     "react",
     "ai",
-    "agent",
-    "grapesjs-style"
+    "agent"
   ],
   "author": "Juan Denis",
   "license": "MIT",

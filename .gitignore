@@ -8,5 +8,9 @@ dist/
 coverage/
 .turbo/
 *.tsbuildinfo
-*.png
+# Loose working images / references at repo root — keep the curated screenshots/ folder
+image*.png
+image*.jpeg
+image*.jpg
 nodesideas.md
+scripts/complex-workflow.json

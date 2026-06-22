@@ -5,8 +5,8 @@
  * nodes (issues, PRs, releases, files, dispatches) with stub executors.
  */
 
-import { defineNodePack, defineStubExecutor } from 'tramo-runtime';
-import type { IntegrationDefinition, NodeDefinition } from 'tramo-spec';
+import { defineNodePack, defineStubExecutor } from '@tramo/runtime';
+import type { IntegrationDefinition, NodeDefinition } from '@tramo/spec';
 
 const COLOR = '#24292f';
 

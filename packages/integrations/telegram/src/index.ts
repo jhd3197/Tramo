@@ -2,8 +2,8 @@
  * @tramo/telegram — official Telegram bot-API integration pack.
  */
 
-import { defineNodePack, defineStubExecutor } from 'tramo-runtime';
-import type { IntegrationDefinition, NodeDefinition } from 'tramo-spec';
+import { defineNodePack, defineStubExecutor } from '@tramo/runtime';
+import type { IntegrationDefinition, NodeDefinition } from '@tramo/spec';
 
 const COLOR = '#26a5e4';
 

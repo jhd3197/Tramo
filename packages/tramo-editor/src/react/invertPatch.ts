@@ -8,7 +8,7 @@
  * every removed edge."
  */
 
-import type { Patch, WorkflowDoc } from 'tramo-spec';
+import type { Patch, WorkflowDoc } from '@tramo/spec';
 
 export function invertPatch(prevDoc: WorkflowDoc, patch: Patch): Patch[] {
   switch (patch.kind) {

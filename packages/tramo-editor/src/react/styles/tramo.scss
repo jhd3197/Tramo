@@ -369,9 +369,10 @@
     position: absolute;
     left: 0;
     right: 0;
-    bottom: -10px;
+    bottom: -16px;
     height: 0;
     pointer-events: none;
+    z-index: 2;
   }
 
   &__port {
@@ -388,6 +389,20 @@
     color: var(--tr-text-muted);
     white-space: nowrap;
     user-select: none;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+
+    /* small anchor dot where the edge actually emerges */
+    &::before {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: -1px;
+      transform: translate(-50%, -50%);
+      width: 5px;
+      height: 5px;
+      background: var(--tr-border-strong);
+      border-radius: 50%;
+    }
   }
 }
 

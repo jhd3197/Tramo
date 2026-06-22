@@ -4,8 +4,8 @@
  * operation nodes with stub executors. Auth model: per-node OAuth 2.0 access token (secret field).
  */
 
-import { defineNodePack, defineStubExecutor } from 'tramo-runtime';
-import type { IntegrationDefinition, NodeDefinition } from 'tramo-spec';
+import { defineNodePack, defineStubExecutor } from '@tramo/runtime';
+import type { IntegrationDefinition, NodeDefinition } from '@tramo/spec';
 
 const COLOR = '#0061d5';
 

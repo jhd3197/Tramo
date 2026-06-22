@@ -8,6 +8,6 @@ This package contains:
 - **React** (`tramo/react`): `useWorkflow`, `WorkflowCanvas` (XYFlow wrapper), `NodeInspector`, `NodesPanel`, `RightRail`.
 - **Agent** (`tramo/agent`): JSON Schema for the patch union, Anthropic/OpenAI tool specs, runtime validators.
 
-The runtime that *executes* a doc lives in [`tramo-runtime`](../tramo-runtime).
+The runtime that *executes* a doc lives in [`@tramo/runtime`](../runtime).
 
 See the [workspace README](../../README.md) for a quickstart and the full architecture.

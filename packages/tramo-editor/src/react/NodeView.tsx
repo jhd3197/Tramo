@@ -21,7 +21,7 @@ import { CATEGORY_META, NodeIcon } from './icons.js';
 import { outputOffset } from './layout.js';
 import { renderTitleWithVars } from './renderTitle.js';
 import { NodeMenu } from './NodeMenu.js';
-import { resolveOutputs, type NodeDefinition, type Patch, type WorkflowNode } from 'tramo-spec';
+import { resolveOutputs, type NodeDefinition, type Patch, type WorkflowNode } from '@tramo/spec';
 
 /**
  * Per-node execution state derived from the runner's event stream.

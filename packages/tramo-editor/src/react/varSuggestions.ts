@@ -3,7 +3,7 @@
  * config fields, by walking the DAG and inspecting upstream output ports.
  *
  * Templates resolve against the *immediate* upstream node's emitted value
- * (see tramo-runtime/src/executors.ts → renderTemplate). When the most
+ * (see @tramo/runtime/src/executors.ts → renderTemplate). When the most
  * recent run results are available, we also enumerate the concrete top-
  * level keys of those values so users see real paths to click.
  */
@@ -15,7 +15,7 @@ import {
   type NodeRegistry,
   type WorkflowDoc,
   type WorkflowNode,
-} from 'tramo-spec';
+} from '@tramo/spec';
 
 export interface VarSuggestion {
   /** Path to insert between `{{ }}`. */

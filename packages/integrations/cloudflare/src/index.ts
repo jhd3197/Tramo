@@ -11,8 +11,8 @@
  * bearer token from dash.cloudflare.com → My Profile → API Tokens.
  */
 
-import { defineNodePack, defineStubExecutor } from 'tramo-runtime';
-import type { IntegrationDefinition, NodeDefinition } from 'tramo-spec';
+import { defineNodePack, defineStubExecutor } from '@tramo/runtime';
+import type { IntegrationDefinition, NodeDefinition } from '@tramo/spec';
 
 const COLOR = '#f38020';
 

@@ -5,8 +5,8 @@
  * message-lookup actions. Auth uses Account SID + Auth Token per node.
  */
 
-import { defineNodePack, defineStubExecutor } from 'tramo-runtime';
-import type { IntegrationDefinition, NodeDefinition } from 'tramo-spec';
+import { defineNodePack, defineStubExecutor } from '@tramo/runtime';
+import type { IntegrationDefinition, NodeDefinition } from '@tramo/spec';
 
 const COLOR = '#f22f46';
 

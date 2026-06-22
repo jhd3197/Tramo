@@ -3,7 +3,7 @@
 Gmail integration pack for [tramo](https://github.com/jhd3197/tramo). Adds 7 Gmail operations — send, reply, draft, search, get, trash, modify labels — to a tramo workflow editor / runtime.
 
 ```ts
-import { combinePacks, BUILTIN_PACK } from 'tramo-runtime';
+import { combinePacks, BUILTIN_PACK } from '@tramo/runtime';
 import GMAIL from '@tramo/gmail';
 
 const { nodes, executors } = combinePacks([BUILTIN_PACK, GMAIL]);

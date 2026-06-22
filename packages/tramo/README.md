@@ -15,4 +15,4 @@ import GITHUB from 'tramo/integrations/github';
 import 'tramo/styles.css';
 ```
 
-This is a thin re-export layer over the lower-level packages — server-only or fine-grained consumers can depend on `@tramo/editor`, `@tramo/runtime`, `tramo-spec`, and individual `@tramo/<brand>` packs directly to keep bundles tight. See the top-level [README](https://github.com/jhd3197/tramo) for the full embedding pitch.
+This is a thin re-export layer over the lower-level packages — server-only or fine-grained consumers can depend on `@tramo/editor`, `@tramo/runtime`, `@tramo/spec`, and individual `@tramo/<brand>` packs directly to keep bundles tight. See the top-level [README](https://github.com/jhd3197/tramo) for the full embedding pitch.

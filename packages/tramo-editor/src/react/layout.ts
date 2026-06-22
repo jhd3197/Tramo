@@ -15,7 +15,7 @@
  * order to avoid an infinite loop (caller can detect via topoSort).
  */
 
-import { resolveOutputs, type NodeDefinition, type NodePort, type NodeRegistry, type WorkflowDoc, type WorkflowNode } from 'tramo-spec';
+import { resolveOutputs, type NodeDefinition, type NodePort, type NodeRegistry, type WorkflowDoc, type WorkflowNode } from '@tramo/spec';
 
 export interface LayoutOptions {
   /** Width allotted per node slot, used for horizontal centering. */
@@ -115,7 +115,7 @@ interface ResolvedOptions {
 const DEFAULTS = {
   nodeWidth: 240,
   rowHeight: 140,
-  multiOutputExtraGap: 48,
+  multiOutputExtraGap: 72,
   columnGap: 40,
   padding: 40,
 };
@@ -265,6 +265,22 @@ export function layoutWorkflow(
       if (parents.length === 0) {
         const idx = rootIndex.get(id) ?? 0;
         preferred.set(id, (idx - (rootIds.length - 1) / 2) * slotWidth);
+      } else if (parents.length === 1) {
+        const parentId = parents[0]!;
+        const parentX = xByNode.get(parentId) ?? 0;
+        const parentNode = doc.nodes.find((n) => n.id === parentId);
+        const parentDef = opts.registry?.get(parentNode?.type ?? '');
+        const parentOuts = parentDef ? resolveOutputs(parentDef, parentNode) : [];
+        if (parentOuts.length > 1) {
+          // Branch children align under the specific source port so edges
+          // from If / Switch outputs drop straight down instead of bending
+          // to a parent-centered node.
+          const edge = doc.edges.find((e) => e.source === parentId && e.target === id);
+          const handle = edge?.sourceHandle ?? parentOuts[0]!.key;
+          preferred.set(id, parentX + outputOffset(parentOuts, handle, opts.nodeWidth));
+        } else {
+          preferred.set(id, parentX);
+        }
       } else {
         let sum = 0;
         let n = 0;

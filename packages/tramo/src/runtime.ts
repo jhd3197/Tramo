@@ -1,1 +1,1 @@
-export * from 'tramo-runtime';
+export * from '@tramo/runtime';

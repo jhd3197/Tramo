@@ -13,7 +13,7 @@
  *   - PROMPT presets          Tweak / Build defaults.
  */
 
-import type { NodeRegistry, Patch, WorkflowDoc, WorkflowNode } from 'tramo-spec';
+import type { NodeRegistry, Patch, WorkflowDoc, WorkflowNode } from '@tramo/spec';
 
 /* ====================================================================== */
 /* JSON Schema for the Patch union                                          */

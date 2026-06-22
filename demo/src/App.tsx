@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
+  SPEC_VERSION,
   applyPatches,
   emptyDoc,
   newEdgeId,
@@ -104,6 +105,7 @@ export function App() {
   const [runResults, setRunResults] = useState<Record<string, unknown>>({});
   const [enabledPacks, setEnabledPacks] = useState<Set<string>>(loadEnabledPacks);
   const [packPickerOpen, setPackPickerOpen] = useState(false);
+  const [jsonOpen, setJsonOpen] = useState(false);
 
   // Pack-based loading: each brand integration is its own @tramo/<brand>
   // npm package. The Packs button in the header lets users toggle which
@@ -254,6 +256,9 @@ export function App() {
               />
             ) : null}
           </div>
+          <button type="button" className="tr-btn tr-btn--ghost" onClick={() => setJsonOpen(true)}>
+            {'{ }'} JSON
+          </button>
           <button type="button" className="tr-btn tr-btn--ghost" onClick={loadExample}>
             Load example
           </button>
@@ -296,7 +301,106 @@ export function App() {
           ]}
         />
       </div>
+
+      {jsonOpen ? (
+        <JsonModal
+          doc={workflow.doc}
+          onClose={() => setJsonOpen(false)}
+          onLoad={workflow.setDoc}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/* ====================================================================== */
+/* JSON modal — view / copy / download / load the WorkflowDoc               */
+/* ====================================================================== */
+
+function JsonModal({
+  doc,
+  onClose,
+  onLoad,
+}: {
+  doc: WorkflowDoc;
+  onClose: () => void;
+  onLoad: (doc: WorkflowDoc) => void;
+}) {
+  const [text, setText] = useState(() => JSON.stringify(doc, null, 2));
+  const [error, setError] = useState<string | null>(null);
+
+  const handleLoad = useCallback(() => {
+    try {
+      const parsed = JSON.parse(text);
+      if (!parsed || typeof parsed !== 'object') {
+        throw new Error('JSON must be an object');
+      }
+      if (parsed.version !== SPEC_VERSION) {
+        throw new Error(`Expected version ${SPEC_VERSION}, got ${parsed.version}`);
+      }
+      if (!Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) {
+        throw new Error('Doc must have nodes and edges arrays');
+      }
+      setError(null);
+      onLoad(parsed as WorkflowDoc);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [text, onLoad, onClose]);
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // ignore
+    }
+  }, [text]);
+
+  const handleDownload = useCallback(() => {
+    const blob = new Blob([text], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'workflow.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [text]);
+
+  return (
+    <>
+      <div className="demo-json__scrim" onClick={onClose} />
+      <div className="demo-json__panel" onClick={(e) => e.stopPropagation()}>
+        <div className="demo-json__head">
+          <span>WorkflowDoc JSON</span>
+          <button type="button" className="demo-json__close" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        </div>
+        <div className="demo-json__hint">
+          This is the document-of-truth. Edit it and click Load to update the canvas,
+          or paste any valid <code>WorkflowDoc</code> JSON.
+        </div>
+        <textarea
+          className="demo-json__area"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          spellCheck={false}
+        />
+        {error ? <div className="demo-json__error">{error}</div> : null}
+        <div className="demo-json__actions">
+          <button type="button" className="tr-btn tr-btn--ghost" onClick={handleCopy}>
+            Copy
+          </button>
+          <button type="button" className="tr-btn tr-btn--ghost" onClick={handleDownload}>
+            Download
+          </button>
+          <button type="button" className="tr-btn" onClick={handleLoad}>
+            Load JSON
+          </button>
+        </div>
+      </div>
+    </>
   );
 }
 

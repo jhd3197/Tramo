@@ -18,8 +18,8 @@
     "dev": "tsc -p tsconfig.json --watch"
   },
   "dependencies": {
-    "tramo-spec": "0.1.0",
-    "tramo-runtime": "0.1.0"
+    "@tramo/spec": "0.1.0",
+    "@tramo/runtime": "0.1.0"
   },
   "devDependencies": { "typescript": "^5.4.0" },
   "keywords": ["tramo", "workflow", "integration", "linear"],

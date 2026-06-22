@@ -1,1 +1,1 @@
-export * from 'tramo-spec';
+export * from '@tramo/spec';

@@ -36,7 +36,7 @@ import { CATEGORY_META, IntegrationIcon, NodeIcon } from './icons.js';
 import { ArrowLeft, Search } from 'lucide-react';
 import { PlusButton } from './PlusButton.js';
 import { layoutWorkflow, outputOffset, type NodeLayout } from './layout.js';
-import { newNodeId, newEdgeId, resolveOutputs, withMcpServers, type IntegrationDefinition, type MCPServerRef, type NodeCategory, type NodeDefinition } from 'tramo-spec';
+import { newNodeId, newEdgeId, resolveOutputs, withMcpServers, type IntegrationDefinition, type MCPServerRef, type NodeCategory, type NodeDefinition } from '@tramo/spec';
 import { MCPImportModal } from './MCPImportModal.js';
 import type { WorkflowHandle } from './useWorkflow.js';
 
@@ -84,7 +84,7 @@ interface InsertionTarget {
 const NODE_WIDTH_DEFAULT = 260;
 // Total node height = category pill (~22px) + 4px gap + single-row card (~44px) ≈ 70
 const NODE_HEIGHT_DEFAULT = 70;
-const PLUS_OFFSET = 36; // distance below a leaf node for the trailing +
+const PLUS_OFFSET = 44; // distance below a leaf node for the trailing +
 
 export function Canvas({
   workflow,

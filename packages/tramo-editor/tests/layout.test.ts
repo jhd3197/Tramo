@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyPatches, emptyDoc, type WorkflowNode } from 'tramo-spec';
+import { applyPatches, createRegistry, emptyDoc, type WorkflowNode } from '@tramo/spec';
 import { layoutWorkflow } from '../src/react/layout.js';
 
 function node(id: string, type = 'log', config: Record<string, unknown> = {}): WorkflowNode {
@@ -152,5 +152,114 @@ describe('layoutWorkflow', () => {
     const r = layoutWorkflow(doc);
     expect(r.positions.get('a')?.x).toBe(-SLOT / 2);
     expect(r.positions.get('b')?.x).toBe(SLOT / 2);
+  });
+
+  it('aligns Switch case children under their source port', () => {
+    const registry = createRegistry([
+      {
+        id: 'switch',
+        name: 'Switch',
+        category: 'logic',
+        description: '',
+        icon: 'Split',
+        inputs: [{ key: 'in', label: 'Input', type: 'any' }],
+        outputs: [{ key: 'out', label: 'Out', type: 'any' }],
+        fields: [
+          {
+            key: 'cases',
+            type: 'switch-cases',
+            label: 'Cases',
+            default: [],
+          },
+        ],
+      },
+      {
+        id: 'log',
+        name: 'Log',
+        category: 'action',
+        description: '',
+        icon: 'FileText',
+        inputs: [{ key: 'in', label: 'Input', type: 'any' }],
+        outputs: [{ key: 'out', label: 'Out', type: 'any' }],
+        fields: [],
+      },
+    ], []);
+    const doc = applyPatches(emptyDoc(), [
+      { kind: 'add-node', node: { id: 's', type: 'switch', config: { cases: [{ key: 'a', label: 'A' }, { key: 'b', label: 'B' }] } } },
+      { kind: 'add-node', node: node('ca', 'log') },
+      { kind: 'add-node', node: node('cb', 'log') },
+      { kind: 'add-edge', edge: { id: 'e1', source: 's', target: 'ca', sourceHandle: 'a' } },
+      { kind: 'add-edge', edge: { id: 'e2', source: 's', target: 'cb', sourceHandle: 'b' } },
+    ]).doc;
+    const r = layoutWorkflow(doc, { registry, nodeWidth: NODE_WIDTH, columnGap: COLUMN_GAP });
+    const sx = r.positions.get('s')!.x;
+    const cax = r.positions.get('ca')!.x;
+    const cbx = r.positions.get('cb')!.x;
+    expect(cax).toBeLessThan(sx);
+    expect(cbx).toBeGreaterThan(sx);
+  });
+
+  it('centers a Merge node at the mean of its multiple parents', () => {
+    const doc = applyPatches(emptyDoc(), [
+      { kind: 'add-node', node: node('p') },
+      { kind: 'add-node', node: node('a') },
+      { kind: 'add-node', node: node('b') },
+      { kind: 'add-node', node: node('m') },
+      { kind: 'add-edge', edge: { id: 'e1', source: 'p', target: 'a' } },
+      { kind: 'add-edge', edge: { id: 'e2', source: 'p', target: 'b' } },
+      { kind: 'add-edge', edge: { id: 'e3', source: 'a', target: 'm' } },
+      { kind: 'add-edge', edge: { id: 'e4', source: 'b', target: 'm' } },
+    ]).doc;
+    const r = layoutWorkflow(doc);
+    const ax = r.positions.get('a')!.x;
+    const bx = r.positions.get('b')!.x;
+    expect(r.positions.get('m')!.x).toBeCloseTo((ax + bx) / 2, 6);
+  });
+
+  it('aligns branch children under their source port on If / Switch nodes', () => {
+    // If exposes 'yes' (left) and 'no' (right) outputs. A child wired to
+    // 'yes' should sit under the yes port, not centered under the parent.
+    const registry = createRegistry([
+      {
+        id: 'if',
+        name: 'If',
+        category: 'logic',
+        description: '',
+        icon: 'GitBranch',
+        inputs: [{ key: 'in', label: 'Input', type: 'any' }],
+        outputs: [
+          { key: 'yes', label: 'Yes', type: 'any' },
+          { key: 'no', label: 'No', type: 'any' },
+        ],
+        fields: [],
+      },
+      {
+        id: 'log',
+        name: 'Log',
+        category: 'action',
+        description: '',
+        icon: 'FileText',
+        inputs: [{ key: 'in', label: 'Input', type: 'any' }],
+        outputs: [{ key: 'out', label: 'Out', type: 'any' }],
+        fields: [],
+      },
+    ], []);
+    const doc = applyPatches(emptyDoc(), [
+      { kind: 'add-node', node: node('i', 'if') },
+      { kind: 'add-node', node: node('y', 'log') },
+      { kind: 'add-node', node: node('n', 'log') },
+      { kind: 'add-edge', edge: { id: 'e1', source: 'i', target: 'y', sourceHandle: 'yes' } },
+      { kind: 'add-edge', edge: { id: 'e2', source: 'i', target: 'n', sourceHandle: 'no' } },
+    ]).doc;
+    const r = layoutWorkflow(doc, { registry, nodeWidth: NODE_WIDTH, columnGap: COLUMN_GAP });
+    const ix = r.positions.get('i')!.x;
+    const yx = r.positions.get('y')!.x;
+    const nx = r.positions.get('n')!.x;
+    // yes port is left of centre, no port is right of centre.
+    expect(yx).toBeLessThan(ix);
+    expect(nx).toBeGreaterThan(ix);
+    // They should be mirror images around the parent (before greedy packing
+    // forces them apart to avoid overlap).
+    expect(yx + nx).toBeCloseTo(ix * 2, 1);
   });
 });

@@ -8,7 +8,7 @@
  *  - Structural edits (add/remove/change op/toggle combinator) commit
  *    immediately. Free-text edits commit on blur.
  *
- * The shape mirrors tramo-spec's RuleGroup / RuleCondition so AI emitters
+ * The shape mirrors @tramo/spec's RuleGroup / RuleCondition so AI emitters
  * can produce the same JSON the UI writes back.
  */
 
@@ -21,7 +21,7 @@ import {
   type RuleGroup,
   type RuleNode,
   type RuleOp,
-} from 'tramo-spec';
+} from '@tramo/spec';
 
 type Path = number[]; // path of child indices from root
 

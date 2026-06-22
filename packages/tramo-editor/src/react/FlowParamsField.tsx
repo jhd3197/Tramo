@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { emptyFlowParam, type FlowParam, type FlowParamType } from 'tramo-spec';
+import { emptyFlowParam, type FlowParam, type FlowParamType } from '@tramo/spec';
 
 const TYPES: Array<{ value: FlowParamType; label: string }> = [
   { value: 'any', label: 'any' },

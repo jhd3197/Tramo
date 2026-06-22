@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BUILTIN_REGISTRY } from 'tramo-spec';
+import { BUILTIN_REGISTRY } from '@tramo/spec';
 import {
   buildPatchSchema,
   buildPatchToolSpec,

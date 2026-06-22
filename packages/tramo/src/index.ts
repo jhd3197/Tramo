@@ -5,8 +5,8 @@
  * so the package root re-exports the editor's React surface. Server-only
  * and per-brand consumers can reach the lower layers via subpath exports:
  *
- *   - `tramo/spec`     → tramo-spec
- *   - `tramo/runtime`  → tramo-runtime
+ *   - `tramo/spec`     → @tramo/spec
+ *   - `tramo/runtime`  → @tramo/runtime
  *   - `tramo/agent`    → @tramo/editor/agent
  *   - `tramo/styles.css`
  *   - `tramo/integrations/<brand>`

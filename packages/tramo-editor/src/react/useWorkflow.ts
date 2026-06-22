@@ -21,7 +21,7 @@ import {
   type Patch,
   type WorkflowDoc,
   type WorkflowNode,
-} from 'tramo-spec';
+} from '@tramo/spec';
 import { invertPatch } from './invertPatch.js';
 
 /** One undo/redo frame. `forward` re-does, `inverse` undoes (applied in order). */

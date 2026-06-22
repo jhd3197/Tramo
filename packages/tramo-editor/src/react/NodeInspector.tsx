@@ -25,7 +25,7 @@ import {
   type Patch,
   type WorkflowDoc,
   type WorkflowNode,
-} from 'tramo-spec';
+} from '@tramo/spec';
 import type { SaveState } from './useWorkflow.js';
 import { getVarSuggestions, type VarSuggestion } from './varSuggestions.js';
 import { VarPicker } from './VarPicker.js';

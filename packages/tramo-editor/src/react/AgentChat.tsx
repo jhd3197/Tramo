@@ -19,7 +19,7 @@ import type {
   NodeRegistry,
   Patch,
   WorkflowDoc,
-} from 'tramo-spec';
+} from '@tramo/spec';
 import {
   PATCH_TOOL_NAME,
   TWEAK_SYSTEM_PROMPT,

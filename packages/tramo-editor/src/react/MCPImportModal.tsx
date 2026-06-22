@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, Plug, X } from 'lucide-react';
-import type { MCPServerRef, MCPToolRef } from 'tramo-spec';
+import type { MCPServerRef, MCPToolRef } from '@tramo/spec';
 
 export interface MCPImportModalProps {
   /** Pre-fill when editing an existing server. Pass `undefined` to add new. */

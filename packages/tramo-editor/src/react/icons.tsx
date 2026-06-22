@@ -43,7 +43,7 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react';
-import type { IntegrationDefinition, NodeCategory, NodeDefinition } from 'tramo-spec';
+import type { IntegrationDefinition, NodeCategory, NodeDefinition } from '@tramo/spec';
 // simple-icons ships its types as a single minified .d.ts line; TS can't
 // always resolve individual named exports through it, so we read the full
 // namespace and index into it. The runtime export is unaffected.

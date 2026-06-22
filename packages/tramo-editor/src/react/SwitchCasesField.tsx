@@ -17,7 +17,7 @@ import {
   newSwitchCaseKey,
   type RuleGroup,
   type SwitchCase,
-} from 'tramo-spec';
+} from '@tramo/spec';
 import { RuleField } from './RuleField.js';
 
 export interface SwitchCasesFieldProps {
