@@ -59,6 +59,15 @@ export {
   type CheckpointStore,
 } from './persistence.js';
 export {
+  memoryConnectionStore,
+  fileConnectionStore,
+  refreshAccessToken,
+  getAccessToken,
+  type OAuthConnection,
+  type ConnectionStore,
+  type GetTokenOptions,
+} from './oauth.js';
+export {
   BUILTIN_EXECUTORS,
   BUILTIN_EXECUTOR_REGISTRY,
   createExecutorRegistry,
