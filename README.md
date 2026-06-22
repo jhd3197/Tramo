@@ -119,7 +119,7 @@ in the browser, on a Node server, in a CLI job, or in Python.
 
 **MCP Import** — Import any MCP server as a tile; tools become first-class nodes.
 
-> ⚠️ **Note:** Integration packs currently ship stub executors that return a deterministic envelope. Real API calls are being wired up — the editor surface and node definitions are ready today.
+**Real API executors** — Action nodes make live HTTP calls (GitHub, Gmail, Notion, Slack-style webhooks, OpenAI, Anthropic, Stripe, Twilio, and the rest). Credentials come from node config or environment variables; a missing credential returns a clear error envelope rather than a fake success. Webhook-trigger nodes stay passthrough — they're driven by the runtime's webhook router.
 
 ### 🤖 Agent-Native
 
@@ -244,11 +244,13 @@ tramo validate workflow.json
 - [x] MCP server import
 - [x] 21 first-party integration packs (editor surface + stubs)
 - [x] `@tramo/cli` binaries
-- [ ] Real API executors for integration packs
-- [ ] Parallel execution within topological layers
-- [ ] Per-node retry / backoff
-- [ ] Streaming `run()` variant
-- [ ] Persistent workflow state / resume after crash
+- [x] Real API executors for integration packs
+- [x] Parallel execution within topological layers
+- [x] Per-node retry / backoff
+- [x] Streaming `run()` variant
+- [x] Persistent workflow state / resume after crash
+- [x] Human-in-the-loop approval gate
+- [x] Token / cost tracking + audit log + secret redaction
 - [ ] `@tramo/server` long-running host
 
 ---

@@ -42,6 +42,15 @@ export {
   type SignaturePreset,
   type VerifyResult,
 } from './crypto.js';
+export {
+  httpJson,
+  toEnvelope,
+  requireFields,
+  HttpError,
+  type HttpRequest,
+  type HttpResult,
+} from './http.js';
+export { renderTemplate, parseMaybeJson } from './template.js';
 export { ApprovalRequiredError, isApprovalRequired } from './approval.js';
 export type { ApprovalRequest, ApprovalDecision } from './types.js';
 export {

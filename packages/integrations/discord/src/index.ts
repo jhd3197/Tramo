@@ -2,7 +2,17 @@
  * @tramo/discord — official Discord integration pack.
  */
 
-import { defineNodePack, defineStubExecutor } from '@tramo/runtime';
+import {
+  defineNodePack,
+  defineStubExecutor,
+  httpJson,
+  toEnvelope,
+  requireFields,
+  renderTemplate,
+  type ExecutionContext,
+  type NodeExecutionResult,
+  type NodeExecutor,
+} from '@tramo/runtime';
 import type { IntegrationDefinition, NodeDefinition } from '@tramo/spec';
 
 const COLOR = '#5865f2';
@@ -150,13 +160,161 @@ const NODES: NodeDefinition[] = [
   },
 ];
 
+/* ---------------------------------------------------------------------- */
+/* Real executors                                                          */
+/* ---------------------------------------------------------------------- */
+
+const API = 'https://discord.com/api/v10';
+
+const env = (name: string): string | undefined =>
+  typeof process !== 'undefined' ? process.env?.[name] : undefined;
+
+const tpl = (ctx: ExecutionContext, key: string): string =>
+  renderTemplate(String(ctx.config[key] ?? ''), ctx.inputs.in, ctx.vars, ctx.steps);
+
+const tokenOf = (ctx: ExecutionContext): string | undefined =>
+  ctx.config.botToken ? String(ctx.config.botToken) : env('DISCORD_BOT_TOKEN');
+
+const botHeaders = (token: string): Record<string, string> => ({
+  authorization: `Bot ${token}`,
+  'user-agent': 'tramo',
+});
+
+/** Parse a `#rrggbb` / `rrggbb` hex string into Discord's integer color, or undefined. */
+function hexToInt(hex: unknown): number | undefined {
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(String(hex ?? '').trim());
+  return m ? parseInt(m[1], 16) : undefined;
+}
+
+const EXEC: Record<string, (ctx: ExecutionContext) => Promise<NodeExecutionResult>> = {
+  'discord-webhook-send': async (ctx) => {
+    const miss = requireFields(ctx.config, ['webhook', 'content'], 'discord-webhook-send');
+    if (miss) return miss;
+    const res = await httpJson({
+      method: 'POST',
+      url: `${String(ctx.config.webhook)}?wait=true`,
+      json: {
+        content: tpl(ctx, 'content'),
+        ...(ctx.config.username ? { username: String(ctx.config.username) } : {}),
+        ...(ctx.config.avatarUrl ? { avatar_url: String(ctx.config.avatarUrl) } : {}),
+      },
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res);
+  },
+
+  'discord-webhook-embed': async (ctx) => {
+    const miss = requireFields(ctx.config, ['webhook'], 'discord-webhook-embed');
+    if (miss) return miss;
+    const color = hexToInt(ctx.config.colorHex);
+    const embed: Record<string, unknown> = {
+      ...(ctx.config.title ? { title: tpl(ctx, 'title') } : {}),
+      ...(ctx.config.description ? { description: tpl(ctx, 'description') } : {}),
+      ...(ctx.config.url ? { url: String(ctx.config.url) } : {}),
+      ...(color != null ? { color } : {}),
+    };
+    const res = await httpJson({
+      method: 'POST',
+      url: `${String(ctx.config.webhook)}?wait=true`,
+      json: { embeds: [embed] },
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res);
+  },
+
+  'discord-thread-create': async (ctx) => {
+    const miss = requireFields(ctx.config, ['webhook', 'threadName'], 'discord-thread-create');
+    if (miss) return miss;
+    const res = await httpJson({
+      method: 'POST',
+      url: `${String(ctx.config.webhook)}?wait=true`,
+      json: {
+        thread_name: String(ctx.config.threadName),
+        ...(ctx.config.content ? { content: tpl(ctx, 'content') } : {}),
+      },
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res);
+  },
+
+  'discord-bot-send': async (ctx) => {
+    const miss = requireFields(ctx.config, ['channelId', 'content'], 'discord-bot-send');
+    if (miss) return miss;
+    const token = tokenOf(ctx);
+    if (!token) return { error: { message: 'discord-bot-send: botToken required (config.botToken or DISCORD_BOT_TOKEN)' } };
+    const res = await httpJson({
+      method: 'POST',
+      url: `${API}/channels/${encodeURIComponent(String(ctx.config.channelId))}/messages`,
+      headers: botHeaders(token),
+      json: {
+        content: tpl(ctx, 'content'),
+        tts: ctx.config.tts === true,
+      },
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res);
+  },
+
+  'discord-dm-send': async (ctx) => {
+    const miss = requireFields(ctx.config, ['userId', 'content'], 'discord-dm-send');
+    if (miss) return miss;
+    const token = tokenOf(ctx);
+    if (!token) return { error: { message: 'discord-dm-send: botToken required (config.botToken or DISCORD_BOT_TOKEN)' } };
+    // Open (or reuse) a DM channel with the recipient, then post into it.
+    const dm = await httpJson<{ id?: string }>({
+      method: 'POST',
+      url: `${API}/users/@me/channels`,
+      headers: botHeaders(token),
+      json: { recipient_id: String(ctx.config.userId) },
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    if (!dm.ok || !dm.data?.id) return toEnvelope(dm);
+    const res = await httpJson({
+      method: 'POST',
+      url: `${API}/channels/${encodeURIComponent(dm.data.id)}/messages`,
+      headers: botHeaders(token),
+      json: { content: tpl(ctx, 'content') },
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res);
+  },
+
+  'discord-react': async (ctx) => {
+    const miss = requireFields(ctx.config, ['channelId', 'messageId', 'emoji'], 'discord-react');
+    if (miss) return miss;
+    const token = tokenOf(ctx);
+    if (!token) return { error: { message: 'discord-react: botToken required (config.botToken or DISCORD_BOT_TOKEN)' } };
+    const emoji = encodeURIComponent(String(ctx.config.emoji));
+    const res = await httpJson({
+      method: 'PUT',
+      url: `${API}/channels/${encodeURIComponent(String(ctx.config.channelId))}/messages/${encodeURIComponent(String(ctx.config.messageId))}/reactions/${emoji}/@me`,
+      headers: { ...botHeaders(token), 'content-length': '0' },
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return res.ok
+      ? { out: { reacted: true, emoji: String(ctx.config.emoji), messageId: String(ctx.config.messageId) } }
+      : toEnvelope(res);
+  },
+};
+
+function buildExecutor(def: NodeDefinition): NodeExecutor {
+  const fn = EXEC[def.id];
+  if (fn) return { id: def.id, execute: fn };
+  // Triggers (and anything without a real impl) keep the passthrough stub.
+  return defineStubExecutor(def);
+}
+
 export default defineNodePack({
   id: 'discord',
   name: 'Discord',
   version: '0.1.0',
-  entries: NODES.map((definition) => ({
-    definition,
-    executor: defineStubExecutor(definition),
-  })),
+  entries: NODES.map((definition) => ({ definition, executor: buildExecutor(definition) })),
   integrations: [DEFINITION],
 });

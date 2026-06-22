@@ -1,11 +1,29 @@
 /**
  * @tramo/stripe — official Stripe integration pack.
+ *
+ * The webhook trigger keeps a passthrough stub (driven by the runtime's
+ * webhook router). Every action node makes real REST calls against
+ * api.stripe.com/v1 using the shared HTTP helper. Stripe expects
+ * application/x-www-form-urlencoded bodies, so params are flattened with
+ * bracket notation (metadata[key], items[0][price], …).
  */
 
-import { defineNodePack, defineStubExecutor } from '@tramo/runtime';
+import {
+  defineNodePack,
+  defineStubExecutor,
+  httpJson,
+  toEnvelope,
+  requireFields,
+  renderTemplate,
+  parseMaybeJson,
+  type ExecutionContext,
+  type NodeExecutionResult,
+  type NodeExecutor,
+} from '@tramo/runtime';
 import type { IntegrationDefinition, NodeDefinition } from '@tramo/spec';
 
 const COLOR = '#635bff';
+const API = 'https://api.stripe.com/v1';
 
 const DEFINITION: IntegrationDefinition = {
   id: 'stripe',
@@ -170,13 +188,201 @@ const NODES: NodeDefinition[] = [
   },
 ];
 
+/* ---------------------------------------------------------------------- */
+/* Real executors                                                          */
+/* ---------------------------------------------------------------------- */
+
+const keyOf = (ctx: ExecutionContext): string | undefined =>
+  ctx.config.apiKey ? String(ctx.config.apiKey) : (typeof process !== 'undefined' ? process.env?.STRIPE_SECRET_KEY : undefined);
+
+const tpl = (ctx: ExecutionContext, key: string): string =>
+  renderTemplate(String(ctx.config[key] ?? ''), ctx.inputs.in, ctx.vars, ctx.steps);
+
+const noKey = { error: { message: 'stripe: secret key required (config.apiKey or STRIPE_SECRET_KEY)' } } as const;
+
+/**
+ * Flatten a nested object/array into Stripe's bracket-notation form params.
+ * e.g. { metadata: { a: 1 }, items: [{ price: 'p' }] } →
+ *      { 'metadata[a]': '1', 'items[0][price]': 'p' }
+ */
+function flatten(value: unknown, prefix = '', out: Record<string, string> = {}): Record<string, string> {
+  if (value == null) return out;
+  if (Array.isArray(value)) {
+    value.forEach((v, i) => flatten(v, prefix ? `${prefix}[${i}]` : String(i), out));
+  } else if (typeof value === 'object') {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      flatten(v, prefix ? `${prefix}[${k}]` : k, out);
+    }
+  } else {
+    if (prefix) out[prefix] = String(value);
+  }
+  return out;
+}
+
+const EXEC: Record<string, (ctx: ExecutionContext) => Promise<NodeExecutionResult>> = {
+  'stripe-customer-create': async (ctx) => {
+    const key = keyOf(ctx);
+    if (!key) return noKey;
+    const meta = parseMaybeJson(ctx.config.metadata);
+    const form: Record<string, string> = {};
+    const email = tpl(ctx, 'email');
+    if (email) form.email = email;
+    if (ctx.config.name) form.name = tpl(ctx, 'name');
+    if (meta && typeof meta === 'object') Object.assign(form, flatten(meta, 'metadata'));
+    const res = await httpJson({
+      method: 'POST',
+      url: `${API}/customers`,
+      bearer: key,
+      form,
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res);
+  },
+
+  'stripe-charge-create': async (ctx) => {
+    const miss = requireFields(ctx.config, ['amount', 'currency'], 'stripe-charge-create');
+    if (miss) return miss;
+    const key = keyOf(ctx);
+    if (!key) return noKey;
+    const form: Record<string, string> = {
+      amount: String(Number(ctx.config.amount)),
+      currency: String(ctx.config.currency).toLowerCase(),
+    };
+    if (ctx.config.customerId) form.customer = String(ctx.config.customerId);
+    if (ctx.config.description) form.description = tpl(ctx, 'description');
+    const res = await httpJson({
+      method: 'POST',
+      url: `${API}/payment_intents`,
+      bearer: key,
+      form,
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res);
+  },
+
+  'stripe-subscription-create': async (ctx) => {
+    const miss = requireFields(ctx.config, ['customerId', 'priceIds'], 'stripe-subscription-create');
+    if (miss) return miss;
+    const key = keyOf(ctx);
+    if (!key) return noKey;
+    const parsed = parseMaybeJson(ctx.config.priceIds);
+    const priceIds = Array.isArray(parsed) ? parsed.map((p) => String(p)).filter(Boolean) : [];
+    if (priceIds.length === 0) {
+      return { error: { message: 'stripe-subscription-create: priceIds must be a non-empty JSON array of price IDs' } };
+    }
+    const form: Record<string, string> = { customer: String(ctx.config.customerId) };
+    priceIds.forEach((price, i) => { form[`items[${i}][price]`] = price; });
+    const trial = Number(ctx.config.trialDays ?? 0);
+    if (trial > 0) form.trial_period_days = String(trial);
+    const res = await httpJson({
+      method: 'POST',
+      url: `${API}/subscriptions`,
+      bearer: key,
+      form,
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res);
+  },
+
+  'stripe-refund-create': async (ctx) => {
+    const miss = requireFields(ctx.config, ['paymentIntentId'], 'stripe-refund-create');
+    if (miss) return miss;
+    const key = keyOf(ctx);
+    if (!key) return noKey;
+    const form: Record<string, string> = { payment_intent: String(ctx.config.paymentIntentId) };
+    const amount = Number(ctx.config.amount ?? 0);
+    if (amount > 0) form.amount = String(amount);
+    if (ctx.config.reason) form.reason = String(ctx.config.reason);
+    const res = await httpJson({
+      method: 'POST',
+      url: `${API}/refunds`,
+      bearer: key,
+      form,
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res);
+  },
+
+  'stripe-invoice-create': async (ctx) => {
+    const miss = requireFields(ctx.config, ['customerId'], 'stripe-invoice-create');
+    if (miss) return miss;
+    const key = keyOf(ctx);
+    if (!key) return noKey;
+    const form: Record<string, string> = { customer: String(ctx.config.customerId) };
+    if (ctx.config.description) form.description = tpl(ctx, 'description');
+    const autoSend = ctx.config.autoSend === true;
+    const days = Number(ctx.config.daysUntilDue ?? 0);
+    if (autoSend) {
+      form.collection_method = 'send_invoice';
+      form.days_until_due = String(days > 0 ? days : 14);
+    }
+    const res = await httpJson<{ id?: string }>({
+      method: 'POST',
+      url: `${API}/invoices`,
+      bearer: key,
+      form,
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    if (!res.ok) return toEnvelope(res);
+    if (autoSend && res.data?.id) {
+      const sent = await httpJson({
+        method: 'POST',
+        url: `${API}/invoices/${res.data.id}/send`,
+        bearer: key,
+        form: {},
+        signal: ctx.signal,
+        timeoutMs: 20000,
+      });
+      return toEnvelope(sent);
+    }
+    return { out: res.data };
+  },
+
+  'stripe-checkout-session': async (ctx) => {
+    const miss = requireFields(ctx.config, ['lineItems', 'successUrl', 'cancelUrl'], 'stripe-checkout-session');
+    if (miss) return miss;
+    const key = keyOf(ctx);
+    if (!key) return noKey;
+    const parsed = parseMaybeJson(ctx.config.lineItems);
+    const lineItems = Array.isArray(parsed) ? parsed : [];
+    if (lineItems.length === 0) {
+      return { error: { message: 'stripe-checkout-session: lineItems must be a non-empty JSON array' } };
+    }
+    const form: Record<string, string> = {
+      mode: String(ctx.config.mode ?? 'payment'),
+      success_url: String(ctx.config.successUrl),
+      cancel_url: String(ctx.config.cancelUrl),
+      ...flatten(lineItems, 'line_items'),
+    };
+    if (ctx.config.customerId) form.customer = String(ctx.config.customerId);
+    const res = await httpJson({
+      method: 'POST',
+      url: `${API}/checkout/sessions`,
+      bearer: key,
+      form,
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res);
+  },
+};
+
+function buildExecutor(def: NodeDefinition): NodeExecutor {
+  const fn = EXEC[def.id];
+  if (fn) return { id: def.id, execute: fn };
+  // Triggers (and anything without a real impl) keep the passthrough stub.
+  return defineStubExecutor(def);
+}
+
 export default defineNodePack({
   id: 'stripe',
   name: 'Stripe',
   version: '0.1.0',
-  entries: NODES.map((definition) => ({
-    definition,
-    executor: defineStubExecutor(definition),
-  })),
+  entries: NODES.map((definition) => ({ definition, executor: buildExecutor(definition) })),
   integrations: [DEFINITION],
 });

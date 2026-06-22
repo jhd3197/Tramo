@@ -4,10 +4,22 @@
  * Auth model: Trello API key + token pair (per-node secret fields).
  */
 
-import { defineNodePack, defineStubExecutor } from '@tramo/runtime';
+import {
+  defineNodePack,
+  defineStubExecutor,
+  httpJson,
+  toEnvelope,
+  requireFields,
+  renderTemplate,
+  parseMaybeJson,
+  type ExecutionContext,
+  type NodeExecutionResult,
+  type NodeExecutor,
+} from '@tramo/runtime';
 import type { IntegrationDefinition, NodeDefinition } from '@tramo/spec';
 
 const COLOR = '#0079bf';
+const API = 'https://api.trello.com/1';
 
 const DEFINITION: IntegrationDefinition = {
   id: 'trello',
@@ -189,13 +201,152 @@ const NODES: NodeDefinition[] = [
   },
 ];
 
+/* ---------------------------------------------------------------------- */
+/* Real executors                                                          */
+/* Auth: Trello takes `key` + `token` as query params (not headers).       */
+/* ---------------------------------------------------------------------- */
+
+interface TrelloAuth {
+  key: string;
+  token: string;
+}
+
+function authOf(ctx: ExecutionContext): TrelloAuth | null {
+  const key = ctx.config.apiKey
+    ? String(ctx.config.apiKey)
+    : (typeof process !== 'undefined' ? process.env?.TRELLO_KEY : undefined);
+  const token = ctx.config.apiToken
+    ? String(ctx.config.apiToken)
+    : (typeof process !== 'undefined' ? process.env?.TRELLO_TOKEN : undefined);
+  if (!key || !token) return null;
+  return { key, token };
+}
+
+const missingAuth = {
+  error: { message: 'trello: key + token required (config.apiKey/apiToken or TRELLO_KEY/TRELLO_TOKEN)' },
+};
+
+const tpl = (ctx: ExecutionContext, key: string): string =>
+  renderTemplate(String(ctx.config[key] ?? ''), ctx.inputs.in, ctx.vars, ctx.steps);
+
+const EXEC: Record<string, (ctx: ExecutionContext) => Promise<NodeExecutionResult>> = {
+  'trello-create-card': async (ctx) => {
+    const miss = requireFields(ctx.config, ['listId', 'name'], 'trello-create-card');
+    if (miss) return miss;
+    const auth = authOf(ctx);
+    if (!auth) return missingAuth;
+    const labelIds = parseMaybeJson(ctx.config.labelIds);
+    const res = await httpJson({
+      method: 'POST',
+      url: `${API}/cards`,
+      query: {
+        ...auth,
+        idList: String(ctx.config.listId),
+        name: tpl(ctx, 'name'),
+        desc: ctx.config.desc ? tpl(ctx, 'desc') : undefined,
+        due: ctx.config.due ? String(ctx.config.due) : undefined,
+        idLabels: Array.isArray(labelIds) && labelIds.length ? labelIds.join(',') : undefined,
+      },
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res);
+  },
+
+  'trello-update-card': async (ctx) => {
+    const miss = requireFields(ctx.config, ['cardId'], 'trello-update-card');
+    if (miss) return miss;
+    const auth = authOf(ctx);
+    if (!auth) return missingAuth;
+    const res = await httpJson({
+      method: 'PUT',
+      url: `${API}/cards/${encodeURIComponent(String(ctx.config.cardId))}`,
+      query: {
+        ...auth,
+        name: ctx.config.name ? tpl(ctx, 'name') : undefined,
+        desc: ctx.config.desc ? tpl(ctx, 'desc') : undefined,
+        idList: ctx.config.listId ? String(ctx.config.listId) : undefined,
+        due: ctx.config.due ? String(ctx.config.due) : undefined,
+        closed: ctx.config.closed === true ? true : undefined,
+      },
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res);
+  },
+
+  'trello-archive-card': async (ctx) => {
+    const miss = requireFields(ctx.config, ['cardId'], 'trello-archive-card');
+    if (miss) return miss;
+    const auth = authOf(ctx);
+    if (!auth) return missingAuth;
+    const res = await httpJson({
+      method: 'PUT',
+      url: `${API}/cards/${encodeURIComponent(String(ctx.config.cardId))}`,
+      query: { ...auth, closed: true },
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res);
+  },
+
+  'trello-list-cards': async (ctx) => {
+    const miss = requireFields(ctx.config, ['boardOrListId'], 'trello-list-cards');
+    if (miss) return miss;
+    const auth = authOf(ctx);
+    if (!auth) return missingAuth;
+    const kind = String(ctx.config.kind ?? 'board');
+    const segment = kind === 'list' ? 'lists' : 'boards';
+    const res = await httpJson({
+      method: 'GET',
+      url: `${API}/${segment}/${encodeURIComponent(String(ctx.config.boardOrListId))}/cards`,
+      query: { ...auth },
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res);
+  },
+
+  'trello-list-boards': async (ctx) => {
+    const auth = authOf(ctx);
+    if (!auth) return missingAuth;
+    const filter = String(ctx.config.filter ?? 'open');
+    const res = await httpJson({
+      method: 'GET',
+      url: `${API}/members/me/boards`,
+      query: { ...auth, filter },
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res);
+  },
+
+  'trello-add-comment': async (ctx) => {
+    const miss = requireFields(ctx.config, ['cardId', 'text'], 'trello-add-comment');
+    if (miss) return miss;
+    const auth = authOf(ctx);
+    if (!auth) return missingAuth;
+    const res = await httpJson({
+      method: 'POST',
+      url: `${API}/cards/${encodeURIComponent(String(ctx.config.cardId))}/actions/comments`,
+      query: { ...auth, text: tpl(ctx, 'text') },
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res);
+  },
+};
+
+function buildExecutor(def: NodeDefinition): NodeExecutor {
+  const fn = EXEC[def.id];
+  if (fn) return { id: def.id, execute: fn };
+  return defineStubExecutor(def);
+}
+
 export default defineNodePack({
   id: 'trello',
   name: 'Trello',
   version: '0.1.0',
-  entries: NODES.map((definition) => ({
-    definition,
-    executor: defineStubExecutor(definition),
-  })),
+  entries: NODES.map((definition) => ({ definition, executor: buildExecutor(definition) })),
   integrations: [DEFINITION],
 });

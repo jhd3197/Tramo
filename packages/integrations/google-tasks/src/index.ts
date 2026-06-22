@@ -4,10 +4,21 @@
  * Auth: OAuth 2.0 access token supplied per-node as a secret field.
  */
 
-import { defineNodePack, defineStubExecutor } from '@tramo/runtime';
+import {
+  defineNodePack,
+  defineStubExecutor,
+  httpJson,
+  toEnvelope,
+  requireFields,
+  renderTemplate,
+  type ExecutionContext,
+  type NodeExecutionResult,
+  type NodeExecutor,
+} from '@tramo/runtime';
 import type { IntegrationDefinition, NodeDefinition } from '@tramo/spec';
 
 const COLOR = '#4285f4';
+const API = 'https://tasks.googleapis.com/tasks/v1';
 
 const DEFINITION: IntegrationDefinition = {
   id: 'google-tasks',
@@ -119,13 +130,122 @@ const NODES: NodeDefinition[] = [
   },
 ];
 
+/* ---------------------------------------------------------------------- */
+/* Real executors                                                          */
+/* ---------------------------------------------------------------------- */
+
+const tokenOf = (ctx: ExecutionContext): string | undefined =>
+  ctx.config.oauthToken
+    ? String(ctx.config.oauthToken)
+    : (typeof process !== 'undefined' ? process.env?.GOOGLE_OAUTH_TOKEN : undefined);
+
+const tpl = (ctx: ExecutionContext, key: string): string =>
+  renderTemplate(String(ctx.config[key] ?? ''), ctx.inputs.in, ctx.vars, ctx.steps);
+
+const missingToken = (id: string) => ({
+  error: { message: `${id}: OAuth token required (config.oauthToken or GOOGLE_OAUTH_TOKEN)` },
+});
+
+const listId = (ctx: ExecutionContext): string =>
+  String(ctx.config.taskListId ?? '@default').trim() || '@default';
+
+const EXEC: Record<string, (ctx: ExecutionContext) => Promise<NodeExecutionResult>> = {
+  'google-tasks-create': async (ctx) => {
+    const miss = requireFields(ctx.config, ['title'], 'google-tasks-create');
+    if (miss) return miss;
+    const token = tokenOf(ctx);
+    if (!token) return missingToken('google-tasks-create');
+    const due = String(ctx.config.due ?? '').trim();
+    const res = await httpJson({
+      method: 'POST',
+      url: `${API}/lists/${encodeURIComponent(listId(ctx))}/tasks`,
+      bearer: token,
+      json: {
+        title: tpl(ctx, 'title'),
+        ...(ctx.config.notes ? { notes: tpl(ctx, 'notes') } : {}),
+        ...(due ? { due } : {}),
+      },
+      signal: ctx.signal,
+      timeoutMs: 30000,
+    });
+    return toEnvelope(res);
+  },
+
+  'google-tasks-complete': async (ctx) => {
+    const miss = requireFields(ctx.config, ['taskId'], 'google-tasks-complete');
+    if (miss) return miss;
+    const token = tokenOf(ctx);
+    if (!token) return missingToken('google-tasks-complete');
+    const res = await httpJson({
+      method: 'PATCH',
+      url: `${API}/lists/${encodeURIComponent(listId(ctx))}/tasks/${encodeURIComponent(String(ctx.config.taskId))}`,
+      bearer: token,
+      json: { status: 'completed', completed: new Date().toISOString() },
+      signal: ctx.signal,
+      timeoutMs: 30000,
+    });
+    return toEnvelope(res);
+  },
+
+  'google-tasks-list': async (ctx) => {
+    const token = tokenOf(ctx);
+    if (!token) return missingToken('google-tasks-list');
+    const res = await httpJson<{ items?: unknown[] }>({
+      method: 'GET',
+      url: `${API}/lists/${encodeURIComponent(listId(ctx))}/tasks`,
+      query: {
+        showCompleted: ctx.config.showCompleted === true,
+        showHidden: ctx.config.showCompleted === true,
+        maxResults: ctx.config.maxResults != null ? Number(ctx.config.maxResults) : 50,
+      },
+      bearer: token,
+      signal: ctx.signal,
+      timeoutMs: 30000,
+    });
+    return toEnvelope(res, (d) => (d?.items ?? []));
+  },
+
+  'google-tasks-delete': async (ctx) => {
+    const miss = requireFields(ctx.config, ['taskId'], 'google-tasks-delete');
+    if (miss) return miss;
+    const token = tokenOf(ctx);
+    if (!token) return missingToken('google-tasks-delete');
+    const taskId = String(ctx.config.taskId);
+    const res = await httpJson({
+      method: 'DELETE',
+      url: `${API}/lists/${encodeURIComponent(listId(ctx))}/tasks/${encodeURIComponent(taskId)}`,
+      bearer: token,
+      signal: ctx.signal,
+      timeoutMs: 30000,
+    });
+    return res.ok ? { out: { deleted: true, taskId } } : toEnvelope(res);
+  },
+
+  'google-tasks-list-tasklists': async (ctx) => {
+    const token = tokenOf(ctx);
+    if (!token) return missingToken('google-tasks-list-tasklists');
+    const res = await httpJson<{ items?: unknown[] }>({
+      method: 'GET',
+      url: `${API}/users/@me/lists`,
+      query: { maxResults: ctx.config.maxResults != null ? Number(ctx.config.maxResults) : 20 },
+      bearer: token,
+      signal: ctx.signal,
+      timeoutMs: 30000,
+    });
+    return toEnvelope(res, (d) => (d?.items ?? []));
+  },
+};
+
+function buildExecutor(def: NodeDefinition): NodeExecutor {
+  const fn = EXEC[def.id];
+  if (fn) return { id: def.id, execute: fn };
+  return defineStubExecutor(def);
+}
+
 export default defineNodePack({
   id: 'google-tasks',
   name: 'Google Tasks',
   version: '0.1.0',
-  entries: NODES.map((definition) => ({
-    definition,
-    executor: defineStubExecutor(definition),
-  })),
+  entries: NODES.map((definition) => ({ definition, executor: buildExecutor(definition) })),
   integrations: [DEFINITION],
 });

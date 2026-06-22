@@ -2,10 +2,21 @@
  * @tramo/airtable — official Airtable integration pack.
  */
 
-import { defineNodePack, defineStubExecutor } from '@tramo/runtime';
+import {
+  defineNodePack,
+  defineStubExecutor,
+  httpJson,
+  toEnvelope,
+  requireFields,
+  parseMaybeJson,
+  type ExecutionContext,
+  type NodeExecutionResult,
+  type NodeExecutor,
+} from '@tramo/runtime';
 import type { IntegrationDefinition, NodeDefinition } from '@tramo/spec';
 
 const COLOR = '#fcb400';
+const API = 'https://api.airtable.com/v0';
 
 const DEFINITION: IntegrationDefinition = {
   id: 'airtable',
@@ -166,13 +177,146 @@ const NODES: NodeDefinition[] = [
   },
 ];
 
+/* ---------------------------------------------------------------------- */
+/* Real executors                                                          */
+/* ---------------------------------------------------------------------- */
+
+const tokenOf = (ctx: ExecutionContext): string | undefined => {
+  if (ctx.config.token) return String(ctx.config.token);
+  return typeof process !== 'undefined' ? process.env?.AIRTABLE_API_KEY : undefined;
+};
+
+const missingToken = { error: { message: 'airtable: token required (config.token or AIRTABLE_API_KEY)' } };
+
+/** Build the base URL for a table — table name/id is path-encoded. */
+const tableUrl = (ctx: ExecutionContext): string =>
+  `${API}/${encodeURIComponent(String(ctx.config.baseId))}/${encodeURIComponent(String(ctx.config.tableId))}`;
+
+const EXEC: Record<string, (ctx: ExecutionContext) => Promise<NodeExecutionResult>> = {
+  'airtable-record-create': async (ctx) => {
+    const miss = requireFields(ctx.config, ['baseId', 'tableId'], 'airtable-record-create');
+    if (miss) return miss;
+    const token = tokenOf(ctx);
+    if (!token) return missingToken;
+    const fields = parseMaybeJson(ctx.config.fields);
+    if (!fields || typeof fields !== 'object' || Array.isArray(fields)) {
+      return { error: { message: 'airtable-record-create: fields must be a JSON object' } };
+    }
+    const res = await httpJson({
+      method: 'POST',
+      url: tableUrl(ctx),
+      bearer: token,
+      json: { fields },
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res);
+  },
+
+  'airtable-record-update': async (ctx) => {
+    const miss = requireFields(ctx.config, ['baseId', 'tableId', 'recordId'], 'airtable-record-update');
+    if (miss) return miss;
+    const token = tokenOf(ctx);
+    if (!token) return missingToken;
+    const fields = parseMaybeJson(ctx.config.fields);
+    if (!fields || typeof fields !== 'object' || Array.isArray(fields)) {
+      return { error: { message: 'airtable-record-update: fields must be a JSON object' } };
+    }
+    const res = await httpJson({
+      method: 'PATCH',
+      url: `${tableUrl(ctx)}/${encodeURIComponent(String(ctx.config.recordId))}`,
+      bearer: token,
+      json: { fields },
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res);
+  },
+
+  'airtable-record-get': async (ctx) => {
+    const miss = requireFields(ctx.config, ['baseId', 'tableId', 'recordId'], 'airtable-record-get');
+    if (miss) return miss;
+    const token = tokenOf(ctx);
+    if (!token) return missingToken;
+    const res = await httpJson({
+      method: 'GET',
+      url: `${tableUrl(ctx)}/${encodeURIComponent(String(ctx.config.recordId))}`,
+      bearer: token,
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res);
+  },
+
+  'airtable-record-delete': async (ctx) => {
+    const miss = requireFields(ctx.config, ['baseId', 'tableId', 'recordId'], 'airtable-record-delete');
+    if (miss) return miss;
+    const token = tokenOf(ctx);
+    if (!token) return missingToken;
+    const res = await httpJson({
+      method: 'DELETE',
+      url: `${tableUrl(ctx)}/${encodeURIComponent(String(ctx.config.recordId))}`,
+      bearer: token,
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res);
+  },
+
+  'airtable-list-records': async (ctx) => {
+    const miss = requireFields(ctx.config, ['baseId', 'tableId'], 'airtable-list-records');
+    if (miss) return miss;
+    const token = tokenOf(ctx);
+    if (!token) return missingToken;
+    const maxRecords = Number(ctx.config.maxRecords ?? 100);
+    const res = await httpJson<{ records?: unknown[] }>({
+      method: 'GET',
+      url: tableUrl(ctx),
+      bearer: token,
+      query: {
+        filterByFormula: ctx.config.filterByFormula ? String(ctx.config.filterByFormula) : undefined,
+        view: ctx.config.view ? String(ctx.config.view) : undefined,
+        maxRecords: Number.isFinite(maxRecords) && maxRecords > 0 ? maxRecords : undefined,
+      },
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    return toEnvelope(res, (d) => d?.records ?? []);
+  },
+
+  'airtable-record-find': async (ctx) => {
+    const miss = requireFields(ctx.config, ['baseId', 'tableId', 'filterByFormula'], 'airtable-record-find');
+    if (miss) return miss;
+    const token = tokenOf(ctx);
+    if (!token) return missingToken;
+    const res = await httpJson<{ records?: unknown[] }>({
+      method: 'GET',
+      url: tableUrl(ctx),
+      bearer: token,
+      query: {
+        filterByFormula: String(ctx.config.filterByFormula),
+        maxRecords: 1,
+      },
+      signal: ctx.signal,
+      timeoutMs: 20000,
+    });
+    if (!res.ok) return toEnvelope(res);
+    const first = res.data?.records?.[0];
+    if (!first) return { notFound: { filterByFormula: String(ctx.config.filterByFormula) } };
+    return { out: first };
+  },
+};
+
+function buildExecutor(def: NodeDefinition): NodeExecutor {
+  const fn = EXEC[def.id];
+  if (fn) return { id: def.id, execute: fn };
+  return defineStubExecutor(def);
+}
+
 export default defineNodePack({
   id: 'airtable',
   name: 'Airtable',
   version: '0.1.0',
-  entries: NODES.map((definition) => ({
-    definition,
-    executor: defineStubExecutor(definition),
-  })),
+  entries: NODES.map((definition) => ({ definition, executor: buildExecutor(definition) })),
   integrations: [DEFINITION],
 });

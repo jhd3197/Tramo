@@ -5,10 +5,22 @@
  * with stub executors. Auth model: per-node OAuth2 bearer token (secret field).
  */
 
-import { defineNodePack, defineStubExecutor } from '@tramo/runtime';
+import {
+  defineNodePack,
+  defineStubExecutor,
+  httpJson,
+  toEnvelope,
+  requireFields,
+  renderTemplate,
+  parseMaybeJson,
+  type ExecutionContext,
+  type NodeExecutionResult,
+  type NodeExecutor,
+} from '@tramo/runtime';
 import type { IntegrationDefinition, NodeDefinition } from '@tramo/spec';
 
 const COLOR = '#0f9d58';
+const API = 'https://sheets.googleapis.com/v4/spreadsheets';
 
 const DEFINITION: IntegrationDefinition = {
   id: 'google-sheets',
@@ -201,13 +213,230 @@ const NODES: NodeDefinition[] = [
   },
 ];
 
+/* ---------------------------------------------------------------------- */
+/* Real executors                                                          */
+/* ---------------------------------------------------------------------- */
+
+const tokenOf = (ctx: ExecutionContext): string | undefined =>
+  ctx.config.oauthToken
+    ? String(ctx.config.oauthToken)
+    : (typeof process !== 'undefined' ? process.env?.GOOGLE_OAUTH_TOKEN : undefined);
+
+const tpl = (ctx: ExecutionContext, key: string): string =>
+  renderTemplate(String(ctx.config[key] ?? ''), ctx.inputs.in, ctx.vars, ctx.steps);
+
+const missingToken = (id: string) => ({
+  error: { message: `${id}: OAuth token required (config.oauthToken or GOOGLE_OAUTH_TOKEN)` },
+});
+
+const valuesUrl = (spreadsheetId: string, range: string): string =>
+  `${API}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}`;
+
+/** Render the `values` field (which may carry {{var}}), then parse it into a 2-D array of cells. */
+function renderRow(ctx: ExecutionContext): unknown[] {
+  const rendered = tpl(ctx, 'values');
+  const parsed = parseMaybeJson(rendered);
+  if (Array.isArray(parsed)) return parsed;
+  return parsed == null ? [] : [parsed];
+}
+
+/** Map a values matrix to objects using the first row as header keys. */
+function mapWithHeader(values: unknown[][]): Record<string, unknown>[] {
+  if (values.length === 0) return [];
+  const header = (values[0] ?? []).map((h) => String(h));
+  return values.slice(1).map((row) => {
+    const obj: Record<string, unknown> = {};
+    header.forEach((key, i) => { obj[key] = row[i]; });
+    return obj;
+  });
+}
+
+const EXEC: Record<string, (ctx: ExecutionContext) => Promise<NodeExecutionResult>> = {
+  'google-sheets-read-rows': async (ctx) => {
+    const miss = requireFields(ctx.config, ['spreadsheetId', 'range'], 'google-sheets-read-rows');
+    if (miss) return miss;
+    const token = tokenOf(ctx);
+    if (!token) return missingToken('google-sheets-read-rows');
+    const res = await httpJson<{ values?: unknown[][] }>({
+      method: 'GET',
+      url: valuesUrl(String(ctx.config.spreadsheetId), String(ctx.config.range)),
+      bearer: token,
+      signal: ctx.signal,
+      timeoutMs: 30000,
+    });
+    if (!res.ok) return toEnvelope(res);
+    const values = res.data?.values ?? [];
+    const header = ctx.config.headerRow === undefined ? true : ctx.config.headerRow === true;
+    return { out: header ? mapWithHeader(values as unknown[][]) : values };
+  },
+
+  'google-sheets-append-row': async (ctx) => {
+    const miss = requireFields(ctx.config, ['spreadsheetId', 'range'], 'google-sheets-append-row');
+    if (miss) return miss;
+    const token = tokenOf(ctx);
+    if (!token) return missingToken('google-sheets-append-row');
+    const res = await httpJson({
+      method: 'POST',
+      url: `${valuesUrl(String(ctx.config.spreadsheetId), String(ctx.config.range))}:append`,
+      query: {
+        valueInputOption: String(ctx.config.valueInputOption ?? 'USER_ENTERED'),
+        insertDataOption: 'INSERT_ROWS',
+        includeValuesInResponse: true,
+      },
+      bearer: token,
+      json: { values: [renderRow(ctx)] },
+      signal: ctx.signal,
+      timeoutMs: 30000,
+    });
+    return toEnvelope(res);
+  },
+
+  'google-sheets-update-row': async (ctx) => {
+    const miss = requireFields(ctx.config, ['spreadsheetId', 'range'], 'google-sheets-update-row');
+    if (miss) return miss;
+    const token = tokenOf(ctx);
+    if (!token) return missingToken('google-sheets-update-row');
+    const res = await httpJson({
+      method: 'PUT',
+      url: valuesUrl(String(ctx.config.spreadsheetId), String(ctx.config.range)),
+      query: {
+        valueInputOption: String(ctx.config.valueInputOption ?? 'USER_ENTERED'),
+        includeValuesInResponse: true,
+      },
+      bearer: token,
+      json: { range: String(ctx.config.range), values: [renderRow(ctx)] },
+      signal: ctx.signal,
+      timeoutMs: 30000,
+    });
+    return toEnvelope(res);
+  },
+
+  'google-sheets-get-cell': async (ctx) => {
+    const miss = requireFields(ctx.config, ['spreadsheetId', 'cell'], 'google-sheets-get-cell');
+    if (miss) return miss;
+    const token = tokenOf(ctx);
+    if (!token) return missingToken('google-sheets-get-cell');
+    const res = await httpJson<{ values?: unknown[][]; range?: string }>({
+      method: 'GET',
+      url: valuesUrl(String(ctx.config.spreadsheetId), String(ctx.config.cell)),
+      bearer: token,
+      signal: ctx.signal,
+      timeoutMs: 30000,
+    });
+    if (!res.ok) return toEnvelope(res);
+    const value = res.data?.values?.[0]?.[0] ?? null;
+    return { out: { cell: String(ctx.config.cell), range: res.data?.range, value } };
+  },
+
+  'google-sheets-set-cell': async (ctx) => {
+    const miss = requireFields(ctx.config, ['spreadsheetId', 'cell'], 'google-sheets-set-cell');
+    if (miss) return miss;
+    const token = tokenOf(ctx);
+    if (!token) return missingToken('google-sheets-set-cell');
+    const res = await httpJson({
+      method: 'PUT',
+      url: valuesUrl(String(ctx.config.spreadsheetId), String(ctx.config.cell)),
+      query: { valueInputOption: 'USER_ENTERED', includeValuesInResponse: true },
+      bearer: token,
+      json: { range: String(ctx.config.cell), values: [[tpl(ctx, 'value')]] },
+      signal: ctx.signal,
+      timeoutMs: 30000,
+    });
+    return toEnvelope(res);
+  },
+
+  'google-sheets-find-row': async (ctx) => {
+    const miss = requireFields(ctx.config, ['spreadsheetId', 'range', 'columnName'], 'google-sheets-find-row');
+    if (miss) return miss;
+    const token = tokenOf(ctx);
+    if (!token) return missingToken('google-sheets-find-row');
+    const res = await httpJson<{ values?: unknown[][] }>({
+      method: 'GET',
+      url: valuesUrl(String(ctx.config.spreadsheetId), String(ctx.config.range)),
+      bearer: token,
+      signal: ctx.signal,
+      timeoutMs: 30000,
+    });
+    if (!res.ok) return toEnvelope(res);
+    const values = (res.data?.values ?? []) as unknown[][];
+    const target = tpl(ctx, 'value');
+    const columnName = String(ctx.config.columnName);
+    const header = (values[0] ?? []).map((h) => String(h));
+    const colIndex = header.indexOf(columnName);
+    if (colIndex === -1) {
+      return { notFound: { reason: `column "${columnName}" not found in header`, columnName } };
+    }
+    for (let i = 1; i < values.length; i++) {
+      const row = values[i] ?? [];
+      if (String(row[colIndex] ?? '') === target) {
+        const obj: Record<string, unknown> = {};
+        header.forEach((key, idx) => { obj[key] = row[idx]; });
+        return { out: { rowNumber: i + 1, row: obj } };
+      }
+    }
+    return { notFound: { columnName, value: target } };
+  },
+
+  'google-sheets-clear-range': async (ctx) => {
+    const miss = requireFields(ctx.config, ['spreadsheetId', 'range'], 'google-sheets-clear-range');
+    if (miss) return miss;
+    const token = tokenOf(ctx);
+    if (!token) return missingToken('google-sheets-clear-range');
+    const res = await httpJson({
+      method: 'POST',
+      url: `${valuesUrl(String(ctx.config.spreadsheetId), String(ctx.config.range))}:clear`,
+      bearer: token,
+      json: {},
+      signal: ctx.signal,
+      timeoutMs: 30000,
+    });
+    return toEnvelope(res);
+  },
+
+  'google-sheets-create-sheet': async (ctx) => {
+    const miss = requireFields(ctx.config, ['spreadsheetId', 'title'], 'google-sheets-create-sheet');
+    if (miss) return miss;
+    const token = tokenOf(ctx);
+    if (!token) return missingToken('google-sheets-create-sheet');
+    const res = await httpJson({
+      method: 'POST',
+      url: `${API}/${encodeURIComponent(String(ctx.config.spreadsheetId))}:batchUpdate`,
+      bearer: token,
+      json: {
+        requests: [
+          {
+            addSheet: {
+              properties: {
+                title: tpl(ctx, 'title'),
+                gridProperties: {
+                  rowCount: ctx.config.rowCount != null ? Number(ctx.config.rowCount) : 1000,
+                  columnCount: ctx.config.columnCount != null ? Number(ctx.config.columnCount) : 26,
+                },
+              },
+            },
+          },
+        ],
+      },
+      signal: ctx.signal,
+      timeoutMs: 30000,
+    });
+    return toEnvelope(res, (d) => {
+      const reply = (d as { replies?: Array<{ addSheet?: { properties?: unknown } }> })?.replies?.[0]?.addSheet?.properties;
+      return reply ?? d;
+    });
+  },
+};
+
+function buildExecutor(def: NodeDefinition): NodeExecutor {
+  const fn = EXEC[def.id];
+  if (fn) return { id: def.id, execute: fn };
+  return defineStubExecutor(def);
+}
+
 export default defineNodePack({
   id: 'google-sheets',
   name: 'Google Sheets',
   version: '0.1.0',
-  entries: NODES.map((definition) => ({
-    definition,
-    executor: defineStubExecutor(definition),
-  })),
+  entries: NODES.map((definition) => ({ definition, executor: buildExecutor(definition) })),
   integrations: [DEFINITION],
 });
