@@ -1,0 +1,8 @@
+**/node_modules
+**/dist
+.git
+demo/dist
+screenshots
+image*.png
+*.md
+!packages/**/README.md

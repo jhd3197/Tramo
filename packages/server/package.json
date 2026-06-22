@@ -1,0 +1,60 @@
+{
+  "name": "@tramo/server",
+  "version": "0.1.0",
+  "description": "Long-running host for tramo workflows — webhooks, cron, a management API, durable runs, and human-in-the-loop approvals.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "tramo-server": "./dist/bin/tramo-server.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@tramo/runtime": "0.1.0",
+    "@tramo/spec": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "keywords": [
+    "workflow",
+    "server",
+    "daemon",
+    "webhook",
+    "cron",
+    "tramo",
+    "automation"
+  ],
+  "author": "Juan Denis",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jhd3197/tramo.git"
+  },
+  "homepage": "https://github.com/jhd3197/tramo#readme",
+  "bugs": {
+    "url": "https://github.com/jhd3197/tramo/issues"
+  }
+}

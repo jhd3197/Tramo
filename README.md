@@ -213,7 +213,8 @@ tramo validate workflow.json
 | `@tramo/spec` | The wire contract — doc model, patches, registry, pure utilities. |
 | `@tramo/editor` | React editor components + LLM agent glue. |
 | `@tramo/runtime` | Reference TypeScript executor and scheduler. |
-| `@tramo/cli` | `tramo run` / `tramo validate` binaries. |
+| `@tramo/cli` | `tramo run` / `tramo validate` / `tramo serve` binaries. |
+| `@tramo/server` | Long-running host: webhooks, cron, management API, run history, durable runs, approvals. |
 | `tramo` | Umbrella meta-package with subpath exports (`tramo/react`, `tramo/spec`, `tramo/runtime`, `tramo/integrations/<brand>`). |
 
 ---
@@ -229,7 +230,8 @@ tramo validate workflow.json
 | **Loops** | `for-each`, `loop-start` / `loop-end` |
 | **State** | `set-var`, `increment-var`, `append-var` |
 | **Sub-Flows** | `flow-input`, `flow-output`, `call-flow` |
-| **AI** | `ai-prompt` |
+| **AI** | `ai-prompt`, `persona`, `llm-switch` (LLM router) |
+| **Control** | `approval-gate` (human-in-the-loop), `health-check` |
 
 ---
 
@@ -251,7 +253,7 @@ tramo validate workflow.json
 - [x] Persistent workflow state / resume after crash
 - [x] Human-in-the-loop approval gate
 - [x] Token / cost tracking + audit log + secret redaction
-- [ ] `@tramo/server` long-running host
+- [x] `@tramo/server` long-running host (webhooks, cron, approvals API, run history) + Docker
 
 ---
 

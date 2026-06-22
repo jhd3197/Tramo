@@ -27,6 +27,14 @@ export interface WorkflowMeta {
   /** Last-touched timestamp (ms since epoch). Optional; runtimes/UI may stamp it. */
   updatedAt?: number;
   /**
+   * Workflow-level revision number, distinct from the doc-format `version`.
+   * Bumped on each save so hosts can roll back, A/B, and reference a specific
+   * iteration. The editor increments it; the server can snapshot per revision.
+   */
+  revision?: number;
+  /** Optional human-readable version label, e.g. "v2 — added refund branch". */
+  versionTag?: string;
+  /**
    * MCP servers imported into this workflow. Each entry both persists the
    * server's connection info (URL + optional bearer token) and caches the
    * tools/list response so the picker can render tiles offline. The editor
