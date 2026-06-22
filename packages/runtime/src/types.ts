@@ -71,6 +71,32 @@ export interface ExecutionContext {
    * streams from one node (default `'out'`).
    */
   emitChunk: (chunk: string, channel?: string) => void;
+  /**
+   * Human-approval decisions keyed by gate key, supplied on resume via
+   * `RunOptions.approvals`. The `approval-gate` node reads this; when no
+   * decision is present it throws `ApprovalRequiredError` to suspend the run.
+   */
+  approvals?: Record<string, ApprovalDecision>;
+}
+
+/** A pending request for human approval raised by a suspended gate. */
+export interface ApprovalRequest {
+  /** Node id of the gate that suspended. */
+  nodeId: string;
+  /** Stable key used to match the decision on resume (defaults to nodeId). */
+  key: string;
+  message?: string;
+  approvers?: string[];
+  /** Wall-clock ms after which the host should auto-reject. */
+  expiresAt?: number;
+}
+
+/** A human's decision on an approval request. */
+export interface ApprovalDecision {
+  approved: boolean;
+  by?: string;
+  comment?: string;
+  at?: number;
 }
 
 /** Token usage + estimated cost for a single AI call. */
@@ -188,8 +214,14 @@ export interface RunOptions {
    * the scheduler skips finished work. See `runner` resume support.
    */
   resumeFrom?: ResumeState;
-  /** Persist progress after each node so a crashed run can resume. */
+  /** Persist progress after each layer so a crashed run can resume. */
   checkpoint?: (state: ResumeState) => void | Promise<void>;
+  /**
+   * Human-approval decisions keyed by gate key. Supplied when resuming a run
+   * that suspended on an `approval-gate`. A gate with no decision suspends
+   * the run again.
+   */
+  approvals?: Record<string, ApprovalDecision>;
 }
 
 /**
@@ -213,12 +245,21 @@ export interface RunResult {
   ok: boolean;
   /** Per-run identifier (matches the runId on every event). */
   runId: string;
+  /**
+   * `completed` — the run finished. `suspended` — it hit an approval gate and
+   * is waiting; resume with `resumeFrom: result.checkpoint` + `approvals`.
+   */
+  status?: 'completed' | 'suspended';
   /** Final results keyed by node id (whatever each node emitted). */
   nodeResults: Record<string, NodeExecutionResult>;
   /** Per-node status snapshots in execution order. */
   events: RunEvent[];
   /** Aggregated token usage + estimated cost (present when any node reported usage). */
   usage?: RunUsage;
+  /** When suspended, the gates awaiting a decision. */
+  pendingApprovals?: ApprovalRequest[];
+  /** When suspended, the resume state to pass back as `resumeFrom`. */
+  checkpoint?: ResumeState;
   error?: string;
 }
 
@@ -233,6 +274,8 @@ export type RunEvent =
   | { type: 'node-skip'; runId: string; nodeId: string; reason: string }
   | { type: 'node-chunk'; runId: string; nodeId: string; chunk: string; channel: string }
   | { type: 'node-usage'; runId: string; nodeId: string; usage: TokenUsage }
+  | { type: 'node-waiting'; runId: string; nodeId: string; reason: string; approval: ApprovalRequest }
+  | { type: 'run-suspended'; runId: string; pending: ApprovalRequest[] }
   | { type: 'run-end'; runId: string; ok: boolean; error?: string };
 
 export type { WorkflowDoc };

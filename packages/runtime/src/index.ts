@@ -35,6 +35,13 @@ export {
   type AuditType,
 } from './audit.js';
 export { createRedactor, redactValue, type Redactor } from './redact.js';
+export { ApprovalRequiredError, isApprovalRequired } from './approval.js';
+export type { ApprovalRequest, ApprovalDecision } from './types.js';
+export {
+  memoryCheckpointStore,
+  fileCheckpointStore,
+  type CheckpointStore,
+} from './persistence.js';
 export {
   BUILTIN_EXECUTORS,
   BUILTIN_EXECUTOR_REGISTRY,

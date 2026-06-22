@@ -62,6 +62,18 @@ function formatEvent(event: RunEvent, paint: (t: string, s: Style) => string): s
       const body = event.data !== undefined ? `${event.message} ${paint(safeJson(event.data), 'dim')}` : event.message;
       return `      ${tag} ${event.nodeId}: ${body}`;
     }
+    case 'node-chunk':
+      return `      ${paint('…', 'gray')} ${event.nodeId}: ${paint(event.chunk, 'dim')}`;
+    case 'node-usage': {
+      const u = event.usage;
+      const tok = `${u.inputTokens ?? 0}→${u.outputTokens ?? 0} tok`;
+      const cost = u.costUsd != null ? ` $${u.costUsd.toFixed(4)}` : '';
+      return `  ${paint('$', 'magenta')} ${event.nodeId} ${paint(`${tok}${cost}`, 'dim')}`;
+    }
+    case 'node-waiting':
+      return `  ${paint('⏸', 'yellow')} ${event.nodeId} ${paint(`waiting: ${event.reason}`, 'yellow')}`;
+    case 'run-suspended':
+      return `${paint('⏸', 'yellow')} ${paint('run-suspended', 'bold')} ${paint(`${event.pending.length} approval(s) pending`, 'yellow')}`;
     case 'run-end':
       return event.ok
         ? `${paint('■', 'green')} ${paint('run-end', 'bold')} ${paint('ok', 'green')}`

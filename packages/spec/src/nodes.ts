@@ -470,6 +470,53 @@ export const BUILTIN_NODES: NodeDefinition[] = [
     ],
   },
 
+  {
+    id: 'approval-gate',
+    name: 'Approval Gate',
+    category: 'logic',
+    description: 'Pause the workflow until a human approves or rejects. The run suspends and resumes via the runtime approvals API (or @tramo/server).',
+    icon: 'ShieldQuestion',
+    color: COLORS.logic,
+    inputs: [{ key: 'in', label: 'In', type: 'any' }],
+    outputs: [
+      { key: 'approved', label: 'Approved', type: 'any' },
+      { key: 'rejected', label: 'Rejected', type: 'any' },
+    ],
+    fields: [
+      {
+        key: 'message',
+        type: 'textarea',
+        label: 'Approval message (supports {{var}})',
+        default: 'Approve this step?',
+        help: 'Shown to approvers. Reference upstream data with {{steps.x.y}}.',
+      },
+      {
+        key: 'approvers',
+        type: 'text',
+        label: 'Approvers (comma-separated)',
+        default: '',
+        optional: true,
+        help: 'Informational list of who may approve. Enforcement is the host\'s job.',
+      },
+      {
+        key: 'timeoutSec',
+        type: 'number',
+        label: 'Timeout (seconds, 0 = none)',
+        default: 0,
+        optional: true,
+        help: 'Sets an expiresAt on the request so the host can auto-reject.',
+      },
+      {
+        key: 'gateKey',
+        type: 'text',
+        label: 'Gate key',
+        default: '',
+        optional: true,
+        help: 'Identifier used to match the approve/reject decision on resume. Defaults to the node id.',
+      },
+    ],
+  },
+
   /* ---------- ai ---------- */
   {
     id: 'ai-prompt',

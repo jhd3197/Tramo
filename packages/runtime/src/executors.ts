@@ -14,6 +14,7 @@ import type {
   NodeExecutionResult,
   NodeExecutor,
 } from './types.js';
+import { ApprovalRequiredError } from './approval.js';
 
 /* ====================================================================== */
 /* registry helper                                                          */
@@ -413,6 +414,40 @@ const merge: NodeExecutor = {
       if (v && typeof v === 'object' && !Array.isArray(v)) Object.assign(out, v);
     }
     return { out };
+  },
+};
+
+/* approval-gate suspends the run until a human decision arrives. With no
+ * decision in ctx.approvals it throws ApprovalRequiredError, which the runner
+ * turns into a suspended RunResult; on resume the decision routes the input
+ * to the `approved` or `rejected` port. */
+const approvalGate: NodeExecutor = {
+  id: 'approval-gate',
+  execute: (ctx) => {
+    const key = String(ctx.config.gateKey ?? '').trim() || ctx.node.id;
+    const decision = ctx.approvals?.[key];
+    if (!decision) {
+      const message = renderTemplate(String(ctx.config.message ?? 'Approve this step?'), ctx.inputs.in, ctx.vars, ctx.steps);
+      const approvers = String(ctx.config.approvers ?? '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const timeoutSec = Number(ctx.config.timeoutSec ?? 0);
+      ctx.log.info(`awaiting approval (${key})`);
+      throw new ApprovalRequiredError({
+        nodeId: ctx.node.id,
+        key,
+        message,
+        ...(approvers.length ? { approvers } : {}),
+        ...(timeoutSec > 0 ? { expiresAt: Date.now() + timeoutSec * 1000 } : {}),
+      });
+    }
+    if (decision.approved) {
+      ctx.log.info(`approved by ${decision.by ?? 'unknown'}`);
+      return { approved: ctx.inputs.in };
+    }
+    ctx.log.info(`rejected by ${decision.by ?? 'unknown'}`);
+    return { rejected: { input: ctx.inputs.in, decision } };
   },
 };
 
@@ -1011,6 +1046,7 @@ export const BUILTIN_EXECUTORS: NodeExecutor[] = [
   ifNode,
   switchNode,
   merge,
+  approvalGate,
   loopStartStub,
   loopEndStub,
   forEach,

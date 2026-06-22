@@ -26,6 +26,7 @@
 import { topoSort, getIncomingEdges, getOutgoingEdges, SPEC_VERSION, buildStepSlugMap } from '@tramo/spec';
 import type { RetryPolicy, WorkflowNode } from '@tramo/spec';
 import type {
+  ApprovalRequest,
   ExecutionContext,
   ExecutorRegistry,
   NodeExecutionResult,
@@ -40,6 +41,7 @@ import type {
 import { createRedactor, type Redactor } from './redact.js';
 import type { AuditRecord } from './audit.js';
 import { estimateCost } from './pricing.js';
+import { isApprovalRequired } from './approval.js';
 
 interface LoopPlan {
   startId: string;
@@ -176,6 +178,12 @@ export async function run(
     mergeUsage((usageByModel[`${u.provider ?? 'unknown'}/${u.model ?? 'unknown'}`] ??= {}), u);
     emit({ type: 'node-usage', runId, nodeId, usage: u });
   };
+
+  /* Suspension state — set when an approval-gate (or any node throwing
+   * ApprovalRequiredError) pauses the run. */
+  let suspended = false;
+  const suspendedNodes = new Set<string>();
+  const pendingApprovals: ApprovalRequest[] = [];
 
   const nodeTypeOf = (id: string) => doc.nodes.find((n) => n.id === id)?.type;
   const emitSkip = (nodeId: string, reason: string) => {
@@ -321,6 +329,7 @@ export async function run(
       emitChunk: (chunk: string, channel = 'out') => {
         emit({ type: 'node-chunk', runId, nodeId, chunk, channel });
       },
+      approvals: options.approvals,
     };
 
     /* Retry loop: an executor that *throws* is retried per the node's
@@ -340,6 +349,17 @@ export async function run(
         pushAudit({ type: 'node-success', runId, nodeId, nodeType: node.type, inputs, output: normalized, durationMs, attempt });
         return true;
       } catch (err) {
+        // Approval suspension is not a failure — pause the run, leave the
+        // gate unresolved so it re-runs on resume, and never retry it.
+        if (isApprovalRequired(err)) {
+          const request = { ...err.request, nodeId };
+          suspended = true;
+          suspendedNodes.add(nodeId);
+          pendingApprovals.push(request);
+          emit({ type: 'node-waiting', runId, nodeId, reason: request.message ?? 'awaiting approval', approval: request });
+          pushAudit({ type: 'node-skip', runId, nodeId, nodeType: node.type, reason: 'awaiting approval' });
+          return false;
+        }
         lastMessage = (err as Error).message || String(err);
         const willRetry = attempt < maxAttempts && !signal.aborted;
         if (willRetry) {
@@ -563,10 +583,22 @@ export async function run(
     await runPool(ready, concurrency, runOne);
 
     for (const id of ready) {
+      // A suspended gate stays unresolved so resume re-runs it with the
+      // decision; its downstream stays pending and the loop will break.
+      if (suspendedNodes.has(id)) continue;
       pending.delete(id);
       resolved.add(id);
       const interior = loopInterior.get(id);
       if (interior) for (const n of interior) resolved.add(n);
+    }
+
+    if (suspended) {
+      const checkpoint = snapshot();
+      if (options.checkpoint) await options.checkpoint(checkpoint);
+      emit({ type: 'run-suspended', runId, pending: pendingApprovals });
+      pushAudit({ type: 'run-end', runId, ok: true, reason: 'suspended' });
+      const usage = anyUsage ? buildRunUsage(usageByNode, usageByModel) : undefined;
+      return { ok: true, runId, status: 'suspended', nodeResults, events, usage, pendingApprovals, checkpoint };
     }
 
     if (options.checkpoint) await options.checkpoint(snapshot());
@@ -576,7 +608,7 @@ export async function run(
   pushAudit({ type: 'run-end', runId, ok: true });
 
   const usage = anyUsage ? buildRunUsage(usageByNode, usageByModel) : undefined;
-  return { ok: true, runId, nodeResults, events, usage };
+  return { ok: true, runId, status: 'completed', nodeResults, events, usage };
 }
 
 /**
@@ -923,6 +955,8 @@ function redactEvent(e: RunEvent, redact: Redactor): RunEvent {
       return { ...e, reason: redact.text(e.reason) };
     case 'node-chunk':
       return { ...e, chunk: redact.text(e.chunk) };
+    case 'node-waiting':
+      return { ...e, reason: redact.text(e.reason) };
     case 'run-end':
       return e.error ? { ...e, error: redact.text(e.error) } : e;
     default:
