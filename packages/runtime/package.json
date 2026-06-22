@@ -1,6 +1,6 @@
 {
   "name": "@tramo/runtime",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Executor for tramo workflow documents — topological scheduling, node executors, triggers.",
   "type": "module",
   "main": "./dist/index.js",
@@ -32,7 +32,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@tramo/spec": "0.1.0"
+    "@tramo/spec": "0.0.1"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
