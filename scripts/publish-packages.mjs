@@ -126,6 +126,21 @@ if (!token) {
 // Ensure the token is available as NODE_AUTH_TOKEN for npm publish.
 process.env.NODE_AUTH_TOKEN = token;
 
+// Also write a temporary .npmrc so npm definitely picks up the token on Windows.
+// .npmrc is gitignored, so it won't be committed.
+import { writeFileSync, unlinkSync } from 'node:fs';
+const npmrcPath = join(ROOT, '.npmrc');
+writeFileSync(npmrcPath, `//registry.npmjs.org/:_authToken=${token}\n`, 'utf8');
+
+function cleanup() {
+  try {
+    unlinkSync(npmrcPath);
+  } catch {}
+}
+process.on('exit', cleanup);
+process.on('SIGINT', () => { cleanup(); process.exit(1); });
+process.on('SIGTERM', () => { cleanup(); process.exit(1); });
+
 if (newVersion) {
   console.log(`\n📦 Syncing monorepo to ${newVersion}...\n`);
   run('node', [join('scripts', 'sync-versions.mjs'), newVersion]);
