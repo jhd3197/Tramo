@@ -17,7 +17,7 @@
     "build:runtime": "npm run build -w @tramo/runtime",
     "build:cli": "npm run build -w @tramo/cli",
     "build:server": "npm run build -w @tramo/server",
-    "build:integrations": "npm run build -w @tramo/gmail -w @tramo/github -w @tramo/telegram -w @tramo/discord -w @tramo/notion -w @tramo/openai -w @tramo/anthropic -w @tramo/linear -w @tramo/airtable -w @tramo/stripe -w @tramo/cloudflare -w @tramo/google-drive -w @tramo/google-sheets -w @tramo/google-tasks -w @tramo/outlook -w @tramo/postgres -w @tramo/twilio -w @tramo/youtube -w @tramo/x -w @tramo/trello -w @tramo/box",
+    "build:integrations": "npm run build -w @tramo/gmail -w @tramo/github -w @tramo/telegram -w @tramo/discord -w @tramo/notion -w @tramo/openai -w @tramo/anthropic -w @tramo/linear -w @tramo/airtable -w @tramo/stripe -w @tramo/cloudflare -w @tramo/google-drive -w @tramo/google-sheets -w @tramo/google-tasks -w @tramo/outlook -w @tramo/postgres -w @tramo/twilio -w @tramo/youtube -w @tramo/x -w @tramo/trello -w @tramo/box -w @tramo/serverkit",
     "dev": "npm run dev --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "demo": "npm run dev -w tramo-demo",
@@ -25,7 +25,7 @@
     "version:sync": "node scripts/sync-versions.mjs",
     "publish:all": "node scripts/publish-packages.mjs",
     "publish:first": "node scripts/publish-packages.mjs",
-    "clean": "node -e \"const fs=require('fs');['packages/spec/dist','packages/tramo-editor/dist','packages/tramo/dist','packages/runtime/dist','packages/cli/dist','packages/server/dist','demo/dist'].concat(['gmail','github','telegram','discord','notion','openai','anthropic','linear','airtable','stripe','cloudflare','google-drive','google-sheets','google-tasks','outlook','postgres','twilio','youtube','x','trello','box'].map(b=>`packages/integrations/${b}/dist`)).forEach(p=>fs.rmSync(p,{recursive:true,force:true}))\""
+    "clean": "node -e \"const fs=require('fs');['packages/spec/dist','packages/tramo-editor/dist','packages/tramo/dist','packages/runtime/dist','packages/cli/dist','packages/server/dist','demo/dist'].concat(['gmail','github','telegram','discord','notion','openai','anthropic','linear','airtable','stripe','cloudflare','google-drive','google-sheets','google-tasks','outlook','postgres','twilio','youtube','x','trello','box','serverkit'].map(b=>`packages/integrations/${b}/dist`)).forEach(p=>fs.rmSync(p,{recursive:true,force:true}))\""
   },
   "author": "Juan Denis",
   "license": "MIT",
