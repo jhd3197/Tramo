@@ -275,9 +275,14 @@ export async function run(
       let value: unknown;
       if (upstream && typeof upstream === 'object' && fromPort in upstream) {
         value = (upstream as Record<string, unknown>)[fromPort];
-      } else if (fromPort === 'out') {
+      } else if (fromPort === 'out' && upstream == null) {
+        // Upstream emitted nothing at all — an undefined input, not a gate.
         value = upstream;
       } else if (runAfter === 'on-success') {
+        // The upstream emitted a *different* port (e.g. `{ error }` while this
+        // edge reads `out`) — that's the branch gate. Passing the whole result
+        // through here (pre-0.2 behavior) leaked error envelopes into happy
+        // paths; the Python runtime gates identically.
         allInputsAvailable = false;
         inputSkipReason = `upstream ${edge.source} did not emit port "${fromPort}"`;
         break;
@@ -855,7 +860,7 @@ function readInputForNode(
     let value: unknown;
     if (upstream && typeof upstream === 'object' && fromPort in upstream) {
       value = (upstream as Record<string, unknown>)[fromPort];
-    } else if (fromPort === 'out') {
+    } else if (fromPort === 'out' && upstream == null) {
       value = upstream;
     }
     inputs[toPort] = value;
@@ -880,7 +885,7 @@ function readEndIncomingValue(
     if (upstream && typeof upstream === 'object' && fromPort in upstream) {
       return (upstream as Record<string, unknown>)[fromPort];
     }
-    if (fromPort === 'out') return upstream;
+    if (fromPort === 'out' && upstream == null) return upstream;
   }
   return undefined;
 }

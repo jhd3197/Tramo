@@ -42,6 +42,29 @@ describe('run()', () => {
     expect(skip).toBeDefined();
   });
 
+  it('gates an out-wired downstream when the upstream emitted only an error port', async () => {
+    // for-each with a non-array source emits { error } — the happy-path branch wired
+    // to `out` must be skipped (not fed the error envelope), while an error-wired
+    // branch fires. Regression: the pre-0.2 bare-out fallback leaked the whole
+    // result through `out` edges.
+    const doc = applyPatches(emptyDoc(), [
+      { kind: 'add-node', node: node('t', 'manual-trigger', { payload: '{"x":42}' }) },
+      { kind: 'add-node', node: node('loop', 'for-each', { source: 'input.x', mode: 'map', body: 'return item;' }) },
+      { kind: 'add-node', node: node('happy', 'log', { prefix: 'HAPPY' }) },
+      { kind: 'add-node', node: node('sad', 'log', { prefix: 'SAD' }) },
+      { kind: 'add-edge', edge: { id: 'e1', source: 't', target: 'loop' } },
+      { kind: 'add-edge', edge: { id: 'e2', source: 'loop', target: 'happy', sourceHandle: 'out' } },
+      { kind: 'add-edge', edge: { id: 'e3', source: 'loop', target: 'sad', sourceHandle: 'error' } },
+    ]).doc;
+
+    const result = await run(doc, BUILTIN_EXECUTOR_REGISTRY);
+    expect(result.ok).toBe(true);
+    expect(result.nodeResults.happy).toBeUndefined();
+    expect(result.nodeResults.sad).toBeDefined();
+    const skip = result.events.find((e) => e.type === 'node-skip' && e.nodeId === 'happy');
+    expect(skip).toBeDefined();
+  });
+
   it('accepts a legacy function-body condition (pre-0.2 back-compat)', async () => {
     const doc = applyPatches(emptyDoc(), [
       { kind: 'add-node', node: node('t', 'manual-trigger', { payload: '{"go":true}' }) },
