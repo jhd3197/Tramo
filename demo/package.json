@@ -1,7 +1,7 @@
 {
   "name": "tramo-demo",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "predev": "node scripts/free-port.mjs 5181",
@@ -12,7 +12,7 @@
   "dependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "tramo": "0.0.1"
+    "tramo": "0.2.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

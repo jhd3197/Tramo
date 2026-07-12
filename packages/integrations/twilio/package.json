@@ -1,6 +1,6 @@
 {
   "name": "@tramo/twilio",
-  "version": "0.0.1",
+  "version": "0.2.0",
   "description": "Twilio integration pack for tramo — SMS, WhatsApp, voice, incoming-message webhook.",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,8 +21,8 @@
     "dev": "tsc -p tsconfig.json --watch"
   },
   "dependencies": {
-    "@tramo/spec": "0.0.1",
-    "@tramo/runtime": "0.0.1"
+    "@tramo/spec": "0.2.0",
+    "@tramo/runtime": "0.2.0"
   },
   "devDependencies": {
     "typescript": "^5.4.0"

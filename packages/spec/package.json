@@ -1,6 +1,6 @@
 {
   "name": "@tramo/spec",
-  "version": "0.0.1",
+  "version": "0.2.0",
   "description": "The tramo workflow spec — pure-data types, document utilities, and the canonical node-definition registry. Shared between the editor (tramo) and every runtime (@tramo/runtime, future tramo-runtime-py).",
   "type": "module",
   "main": "./dist/index.js",
