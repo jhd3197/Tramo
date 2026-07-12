@@ -13,7 +13,8 @@
     }
   },
   "bin": {
-    "tramo-server": "./dist/bin/tramo-server.js"
+    "tramo-server": "./dist/bin/tramo-server.js",
+    "tramo-server-full": "./dist/bin/tramo-server-full.js"
   },
   "files": [
     "dist",
@@ -28,7 +29,29 @@
   },
   "dependencies": {
     "@tramo/runtime": "0.1.0",
-    "@tramo/spec": "0.1.0"
+    "@tramo/spec": "0.1.0",
+    "@tramo/airtable": "0.0.1",
+    "@tramo/anthropic": "0.0.1",
+    "@tramo/box": "0.0.1",
+    "@tramo/cloudflare": "0.0.1",
+    "@tramo/discord": "0.0.1",
+    "@tramo/github": "0.0.1",
+    "@tramo/gmail": "0.0.1",
+    "@tramo/google-drive": "0.0.1",
+    "@tramo/google-sheets": "0.0.1",
+    "@tramo/google-tasks": "0.0.1",
+    "@tramo/linear": "0.0.1",
+    "@tramo/notion": "0.0.1",
+    "@tramo/openai": "0.0.1",
+    "@tramo/outlook": "0.0.1",
+    "@tramo/postgres": "0.0.1",
+    "@tramo/serverkit": "0.0.1",
+    "@tramo/stripe": "0.0.1",
+    "@tramo/telegram": "0.0.1",
+    "@tramo/trello": "0.0.1",
+    "@tramo/twilio": "0.0.1",
+    "@tramo/x": "0.0.1",
+    "@tramo/youtube": "0.0.1"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

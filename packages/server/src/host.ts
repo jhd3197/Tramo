@@ -115,6 +115,24 @@ export class TramoHost {
     return this.workflows[id];
   }
 
+  /**
+   * Replace the loaded workflow catalog in place. Mutates the existing
+   * `workflows` object so every live reference (webhook routes, cron entries)
+   * picks up the new set, then re-arms cron if it was running. Suspended runs
+   * and history are preserved. Used by `POST /api/reload`.
+   */
+  reloadWorkflows(next: Record<string, WorkflowDoc>): { count: number; ids: string[] } {
+    for (const key of Object.keys(this.workflows)) delete this.workflows[key];
+    Object.assign(this.workflows, next);
+    if (this.cronTimer) {
+      this.stopCron();
+      this.lastCronMinute = -1;
+      this.startCron();
+    }
+    const ids = Object.keys(this.workflows);
+    return { count: ids.length, ids };
+  }
+
   /** Trigger a workflow run. Records history + persists if it suspends. */
   async trigger(workflowId: string, trigger?: unknown, source: RunSource = 'manual'): Promise<RunResult> {
     const doc = this.workflows[workflowId];

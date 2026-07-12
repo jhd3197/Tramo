@@ -16,10 +16,12 @@
  *   POST /api/runs/:runId/replay      re-run with the recorded trigger
  *   POST /api/runs/:runId/approve     resume a suspended run
  *   GET  /api/approvals               pending approvals
+ *   POST /api/reload                  re-read the workflow catalog from source
  */
 
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from 'node:http';
 import type { RunResult, ApprovalDecision } from '@tramo/runtime';
+import type { WorkflowDoc } from '@tramo/spec';
 import { TramoHost, type TramoHostOptions, type WebhookLikeRequest } from './host.js';
 
 export interface TramoServerOptions extends TramoHostOptions {
@@ -29,6 +31,11 @@ export interface TramoServerOptions extends TramoHostOptions {
   apiKey?: string;
   /** Start the cron ticker when listening. Default true. */
   cron?: boolean;
+  /**
+   * Source for `POST /api/reload` — re-reads the workflow catalog (e.g. from
+   * disk) and returns the new set. When omitted, `/api/reload` responds 501.
+   */
+  reload?: () => Promise<Record<string, WorkflowDoc>>;
 }
 
 export interface TramoServer {
@@ -154,6 +161,18 @@ export function createTramoServer(options: TramoServerOptions): TramoServer {
     }
     if (method === 'GET' && sub === '/approvals') {
       return sendJson(res, 200, { ok: true, pending: host.pendingApprovals() });
+    }
+    if (method === 'POST' && sub === '/reload') {
+      if (!options.reload) {
+        return sendJson(res, 501, { ok: false, error: 'reload not supported by this server' });
+      }
+      try {
+        const next = await options.reload();
+        const { count, ids } = host.reloadWorkflows(next);
+        return sendJson(res, 200, { ok: true, count, workflows: ids });
+      } catch (err) {
+        return sendJson(res, 500, { ok: false, error: (err as Error).message });
+      }
     }
 
     return sendJson(res, 404, { ok: false, error: `no such endpoint: ${method} ${prefix}${sub}` });
