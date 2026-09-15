@@ -104,8 +104,8 @@ export function Canvas({
    * picked nodes get serverUrl + toolName baked into their config and
    * dispatch via the `mcp-tool-call:` executor prefix. */
   const mcpServers: MCPServerRef[] = useMemo(
-    () => doc?.meta.mcpServers ?? [],
-    [doc?.meta.mcpServers],
+    () => doc?.meta?.mcpServers ?? [],
+    [doc?.meta?.mcpServers],
   );
   const registry = useMemo(
     () => withMcpServers(baseRegistry, mcpServers),
