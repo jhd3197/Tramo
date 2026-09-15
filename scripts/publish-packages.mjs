@@ -72,6 +72,29 @@ function run(cmd, args, opts = {}) {
   return result;
 }
 
+const VERSIONS = new Map();
+
+/** Record a workspace package's name and the version this checkout would publish. */
+function record(pkgPath, names) {
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+  names.push(pkg.name);
+  VERSIONS.set(pkg.name, pkg.version);
+}
+
+/** True when this exact version is already on the registry.
+ *
+ * A release can stop partway: a network failure, an expired token, or a
+ * one-time password that timed out. Re-running must finish the release rather
+ * than abort on the first package that already went out. */
+function alreadyPublished(name, version) {
+  const result = spawnSync('npm', ['view', `${name}@${version}`, 'version'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    shell: process.platform === 'win32',
+  });
+  return result.status === 0 && String(result.stdout).trim().includes(version);
+}
+
 function getWorkspaceNames() {
   const rootPkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
   const names = [];
@@ -83,13 +106,13 @@ function getWorkspaceNames() {
       for (const entry of readdirSync(dir)) {
         const pkgPath = join(dir, entry, 'package.json');
         if (existsSync(pkgPath)) {
-          names.push(JSON.parse(readFileSync(pkgPath, 'utf8')).name);
+          record(pkgPath, names);
         }
       }
     } else {
       const pkgPath = join(ROOT, glob, 'package.json');
       if (existsSync(pkgPath)) {
-        names.push(JSON.parse(readFileSync(pkgPath, 'utf8')).name);
+        record(pkgPath, names);
       }
     }
   }
@@ -157,17 +180,23 @@ const names = getWorkspaceNames().filter((n) => n !== 'tramo-workspace' && n !==
 const publishOrder = determinePublishOrder(names);
 
 console.log('\n🚀 Publishing in order:\n');
+const skipped = [];
+const published = [];
 for (const name of publishOrder) {
-  console.log(`→ ${name}`);
-}
-console.log('');
-
-for (const name of publishOrder) {
-  console.log(`\n📤 Publishing ${name}...\n`);
+  const version = VERSIONS.get(name);
+  if (version && alreadyPublished(name, version)) {
+    console.log(`\n⏭️  ${name}@${version} is already on the registry — skipping.\n`);
+    skipped.push(`${name}@${version}`);
+    continue;
+  }
+  console.log(`\n📤 Publishing ${name}@${version}...\n`);
   const publishArgs = ['publish', '-w', name, '--access', 'public'];
   if (isCI) publishArgs.push('--provenance');
   if (distTag) publishArgs.push('--tag', distTag);
   run('npm', publishArgs);
+  published.push(`${name}@${version}`);
 }
 
-console.log('\n✅ All packages published.');
+console.log(`\n✅ Release complete: ${published.length} published, ${skipped.length} already on the registry.`);
+if (published.length) console.log(`   published: ${published.join(', ')}`);
+if (skipped.length) console.log(`   skipped:   ${skipped.join(', ')}`);
