@@ -1,6 +1,6 @@
 {
   "name": "@tramo/editor",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Visual node-editor for tramo workflows — React components and LLM-agent glue. Pairs with @tramo/spec (the wire format) and @tramo/runtime (the executor).",
   "type": "module",
   "exports": {
@@ -43,7 +43,7 @@
   "dependencies": {
     "lucide-react": "^1.16.0",
     "simple-icons": "^16.21.0",
-    "@tramo/spec": "0.2.1"
+    "@tramo/spec": "0.2.2"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

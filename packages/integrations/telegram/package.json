@@ -1,6 +1,6 @@
 {
   "name": "@tramo/telegram",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Telegram integration pack for tramo — bot messages, photos, polls, edits.",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,8 +21,8 @@
     "dev": "tsc -p tsconfig.json --watch"
   },
   "dependencies": {
-    "@tramo/spec": "0.2.1",
-    "@tramo/runtime": "0.2.1"
+    "@tramo/spec": "0.2.2",
+    "@tramo/runtime": "0.2.2"
   },
   "devDependencies": {
     "typescript": "^5.4.0"
