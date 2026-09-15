@@ -1,6 +1,6 @@
 {
   "name": "@tramo/cloudflare",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Cloudflare integration pack for tramo — Workers, KV, R2, DNS, notification webhook.",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,8 +21,8 @@
     "dev": "tsc -p tsconfig.json --watch"
   },
   "dependencies": {
-    "@tramo/spec": "0.2.0",
-    "@tramo/runtime": "0.2.0"
+    "@tramo/spec": "0.2.1",
+    "@tramo/runtime": "0.2.1"
   },
   "devDependencies": {
     "typescript": "^5.4.0"
