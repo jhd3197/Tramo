@@ -27,6 +27,28 @@ jobs:
           echo "Commit made by GitHub Actions. Exiting."
           exit 0
 
+      # A release creates a tag, a GitHub Release and a version-bump commit
+      # before it ever reaches npm. When the token is missing or invalid the
+      # publish fails at the end and those are already spent, so every retry
+      # burns another version. Check the credential before anything is created.
+      - name: Verify the npm token before creating any tag
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "NPM_TOKEN is not set. Add it as a repository secret."
+            echo "It must be an npm Automation token or a granular access token:"
+            echo "a classic Publish token still demands a one-time password and cannot run here."
+            exit 1
+          fi
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+          if ! npm whoami --registry=https://registry.npmjs.org; then
+            rm -f ~/.npmrc
+            echo "NPM_TOKEN is not valid for registry.npmjs.org."
+            exit 1
+          fi
+          rm -f ~/.npmrc
+
       - name: Bump Version and Push Tag
         id: bump_version
         uses: mathieudutour/github-tag-action@v6.2
