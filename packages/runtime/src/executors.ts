@@ -15,6 +15,7 @@ import type {
   NodeExecutor,
 } from './types.js';
 import { ApprovalRequiredError } from './approval.js';
+import { hmacHex, subtle } from './crypto.js';
 import { parseMaybeJson, renderTemplate } from './template.js';
 
 /* ====================================================================== */
@@ -1133,7 +1134,7 @@ const hashNode: NodeExecutor = {
       const digest = md5(str);
       return { out: encoding === 'base64' ? bytesToBase64(digest) : bytesToHex(digest) };
     }
-    const buf = await crypto.subtle.digest(algoName, new TextEncoder().encode(str));
+    const buf = await (await subtle()).digest(algoName, new TextEncoder().encode(str));
     const bytes = new Uint8Array(buf);
     return { out: encoding === 'base64' ? bytesToBase64(bytes) : bytesToHex(bytes) };
   },
@@ -1432,18 +1433,6 @@ function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(clean.length / 2);
   for (let i = 0; i < out.length; i++) out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
   return out;
-}
-
-async function hmacHex(secret: string, payload: string, algorithm: 'sha256' | 'sha1'): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: algorithm === 'sha1' ? 'SHA-1' : 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));
-  return bytesToHex(new Uint8Array(sig));
 }
 
 /** Constant-time string comparison — guards against timing oracle attacks

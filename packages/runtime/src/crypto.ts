@@ -4,6 +4,22 @@
  * time comparison guards against timing oracles.
  */
 
+let subtleCache: SubtleCrypto | undefined;
+
+/**
+ * Web Crypto's `SubtleCrypto`. Browsers and Node 20+ expose it as the global
+ * `crypto`; Node 18 only ships it as `node:crypto`'s `webcrypto`. The
+ * specifier sits in a variable so browser bundlers leave the import alone.
+ */
+export async function subtle(): Promise<SubtleCrypto> {
+  if (subtleCache) return subtleCache;
+  const g = (globalThis as { crypto?: Crypto }).crypto;
+  if (g?.subtle) return (subtleCache = g.subtle);
+  const nodeCrypto = 'node:crypto';
+  const mod = (await import(/* @vite-ignore */ nodeCrypto)) as { webcrypto: Crypto };
+  return (subtleCache = mod.webcrypto.subtle);
+}
+
 export type SignaturePreset = 'github' | 'stripe' | 'slack' | 'generic';
 
 export interface VerifyResult {
@@ -18,14 +34,15 @@ function bytesToHex(bytes: Uint8Array): string {
 }
 
 export async function hmacHex(secret: string, payload: string, algorithm: 'sha256' | 'sha1' = 'sha256'): Promise<string> {
-  const key = await crypto.subtle.importKey(
+  const s = await subtle();
+  const key = await s.importKey(
     'raw',
     new TextEncoder().encode(secret),
     { name: 'HMAC', hash: algorithm === 'sha1' ? 'SHA-1' : 'SHA-256' },
     false,
     ['sign'],
   );
-  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));
+  const sig = await s.sign('HMAC', key, new TextEncoder().encode(payload));
   return bytesToHex(new Uint8Array(sig));
 }
 
