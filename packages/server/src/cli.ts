@@ -84,9 +84,11 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
 
   const workflows = await loadWorkflowsFromDir(parsed.dir);
   const ids = Object.keys(workflows);
+  // An empty catalog is a valid starting state for a managed host: workflows
+  // arrive later via POST /api/reload or a restart. Exiting here crash-loops a
+  // container that was started before its first workflow was deployed.
   if (ids.length === 0) {
-    process.stderr.write(`error: no workflow .json files found in ${parsed.dir}\n`);
-    return 1;
+    process.stderr.write(`warning: no workflow .json files found in ${parsed.dir} — starting with an empty catalog\n`);
   }
 
   const { executors, nodes, packIds } = await resolveRegistries(parsed.packs);
